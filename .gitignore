@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+tsconfig.tsbuildinfo
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.local
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Large media. GitHub rejects any single file over 100 MiB and the hero footage
+# is 233 MiB, so video is kept out of the repo entirely. See README for where to
+# place it after cloning.
+*.mp4
+*.mov
+*.webm
+video/

@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Self-hosted Poppins (SIL OFL). Only the weights actually used are shipped:
+   400 and 500. Add 600/700 here if bold text is introduced, otherwise the
+   browser will synthesise a faux bold. */
+@font-face {
+  font-family: 'Poppins';
+  src: url('./fonts/Poppins/Poppins-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Poppins';
+  src: url('./fonts/Poppins/Poppins-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Poppins';
+  src: url('./fonts/Poppins/Poppins-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  html {
+    background-color: #0a0a0a;
+    /* One section in view at a time, while the page stays a normal scroller.
+       Proximity rather than mandatory: the scroll-scrubbed section needs to be
+       freely scrollable inside itself, and mandatory would yank the page past
+       its intermediate positions. */
+    scroll-snap-type: y proximity;
+    /* Hide the scrollbar without disabling scrolling. */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge */
+  }
+
+  html::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Edge */
+  }
+
+  main {
+    /* The rotated reveal state widens each element's box; clip that sideways
+       spill. Must be `clip`, not `hidden`: `hidden` would make this a scroll
+       container and break the page-level scroll snapping above. */
+    overflow-x: clip;
+  }
+
+  main > section {
+    scroll-snap-align: start;
+    /* Don't let a flick skip a section entirely. */
+    scroll-snap-stop: always;
+  }
+
+  /* Header nav is in-page anchors, so jumping instantly is disorienting. */
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+
+  /* Forced snapping fights the user when they've asked for less motion. */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-snap-type: none;
+    }
+  }
+
+  body {
+    font-family: 'Poppins', system-ui, sans-serif;
+    background-color: #0a0a0a;
+    color: #ffffff;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
