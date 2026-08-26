@@ -7,7 +7,7 @@ import SectionTwo from './components/SectionTwo'
 import SectionWork from './components/SectionWork'
 import SectionClose from './components/SectionClose'
 
-const HERO_VIDEO = '/hero-fluid.mp4'
+const HERO_VIDEO = `${import.meta.env.BASE_URL}hero-fluid.mp4`
 
 export default function App() {
   return (

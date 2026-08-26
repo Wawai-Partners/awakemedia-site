@@ -42,7 +42,7 @@ export default function SectionClose() {
           <div className="relative border-t border-white/20 pt-10">
           <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between md:gap-16">
             <img
-              src="/AMLOGO2022_03.png"
+              src={`${import.meta.env.BASE_URL}AMLOGO2022_03.png`}
               alt="Awake Media"
               className="h-14 w-auto shrink-0 sm:h-16"
             />

@@ -16,7 +16,7 @@ export default function Navbar() {
       <div className="relative flex items-center justify-between px-5 py-4 sm:px-8 md:px-12">
         <Reveal delay={0} trigger="mount">
           <a href="#" className="flex items-center text-white">
-            <img src="/AMLOGO2022_03.png" alt="Awake Media" className="h-14 w-auto sm:h-16 lg:h-20" />
+            <img src={`${import.meta.env.BASE_URL}AMLOGO2022_03.png`} alt="Awake Media" className="h-14 w-auto sm:h-16 lg:h-20" />
           </a>
         </Reveal>
 
