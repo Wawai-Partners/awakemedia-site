@@ -18,30 +18,27 @@ The dev server runs on port 5199.
 npm run build    # production build into dist/
 ```
 
-## Hero video is not in this repo
+## Hero video
 
-The page background is a scroll-scrubbed video that the components expect at:
+The page background is a scroll-scrubbed video committed at:
 
 ```
 public/hero-fluid.mp4
 ```
 
-That file is **not** committed. The master footage is 233 MiB and GitHub rejects
-any single file over 100 MiB, so all video is excluded by `.gitignore`. After
-cloning you need to supply it yourself, or the background renders as flat black
-while the rest of the page still works.
+It's a transcoded, web-ready file (1080p, ~27 MB) — well under GitHub's 100 MiB
+per-file limit. The master 4K footage is 233 MiB and is **not** committed;
+`.gitignore` excludes `*.mp4` in general but allowlists this one file.
 
-The committed source is 4K and far too heavy to ship to browsers. Before
-deploying, transcode it down to something a visitor can actually load:
+If you need to re-encode from new master footage:
 
 ```bash
 ffmpeg -i source.mp4 -vf scale=1920:-2 -c:v libx264 -crf 26 -preset slow \
   -an -movflags +faststart public/hero-fluid.mp4
 ```
 
-That lands around 5 to 12 MB. Audio is dropped with `-an` because the video is
-decorative and muted, and `+faststart` lets playback begin before the whole file
-has arrived.
+Audio is dropped with `-an` because the video is decorative and muted, and
+`+faststart` lets playback begin before the whole file has arrived.
 
 ## Structure
 
