@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Reveal from './Reveal'
+import SnapSteps from './SnapSteps'
 import { onScrollFrame, runwayProgress } from '../scroll'
 
 const ITEMS = [
@@ -59,11 +60,12 @@ const ITEMS = [
 const STEPS = ITEMS.length + 1
 
 /**
- * The steps occupy the first 88% of the runway; the last 12% is reserved for
- * the exit. Without that reserve the final item would start fading the moment
- * it appeared.
+ * Where the page may come to rest inside this section: the middle of each
+ * step's band, so it lands solidly on that step rather than on a boundary
+ * where the next one is already fading in. Step 0 rests at the section's very
+ * start instead, that being its own entrance.
  */
-const STEP_SPAN = 0.88
+const SNAP_AT = Array.from({ length: STEPS }, (_, i) => (i === 0 ? 0 : (i + 0.5) / STEPS))
 
 export default function SectionTwo() {
   // `step` is one of eleven discrete values, so React owning it costs eleven
@@ -100,8 +102,9 @@ export default function SectionTwo() {
       if (!moved && lastStep >= 0) return
       const p = runwayProgress(top, height, y, vh)
 
-      const stepped = Math.min(1, p / STEP_SPAN)
-      const next = height - vh <= 0 ? 0 : Math.min(STEPS - 1, Math.floor(stepped * STEPS))
+      // The steps now use the whole runway. They used to stop at 88% of it,
+      // with the last 12% reserved for the exit below.
+      const next = height - vh <= 0 ? 0 : Math.min(STEPS - 1, Math.floor(p * STEPS))
       if (next !== lastStep) {
         lastStep = next
         setStep(next)
@@ -109,7 +112,20 @@ export default function SectionTwo() {
 
       const shell = shellRef.current
       if (!shell) return
-      const exitT = Math.max(0, (p - STEP_SPAN) / (1 - STEP_SPAN))
+      /**
+       * The exit runs over the tail: the one viewport the pinned block spends
+       * sliding away after it stops sticking.
+       *
+       * It used to run over the last 12% of the runway, which finished the fade
+       * *before* the slide-out began - leaving the tail at a measured 0% of
+       * content, a full screen of nothing between this section and the next.
+       * Running it here fills that screen with the block leaving, which is what
+       * the neighbouring section already does and reads as continuous. Pulling
+       * the next section up over the tail instead only traded the blank screen
+       * for two headings printed on top of each other.
+       */
+      const tailStart = top + height - vh
+      const exitT = vh > 0 ? Math.min(1, Math.max(0, (y - tailStart) / vh)) : 0
       // Exact rather than quantised, so the ramp lands on precisely 0 and 1.
       // This still skips the whole of the rest of the page, where exitT is
       // pinned at 0 and writing the style again would only invalidate it.
@@ -146,7 +162,12 @@ export default function SectionTwo() {
 
   return (
     // Tall on purpose: the extra height is the runway the items step along.
-    <section ref={sectionRef} id="whats-included" className="relative h-[420vh] supports-[height:100svh]:h-[420svh]">
+    <section
+      ref={sectionRef}
+      id="whats-included"
+      className="relative h-[420vh] supports-[height:100svh]:h-[420svh]"
+    >
+      <SnapSteps at={SNAP_AT} />
       <div className="sticky top-0 flex h-screen flex-col items-center justify-center gap-10 px-5 pb-12 pt-header text-center supports-[height:100svh]:h-[100svh] sm:px-8 md:px-12 md:pb-16">
         {/* One fixed-height stage with every step stacked inside it, so swapping
             copy never shifts the CTA and rail below. */}

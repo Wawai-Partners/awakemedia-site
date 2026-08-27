@@ -32,11 +32,10 @@
 @layer base {
   html {
     background-color: #0a0a0a;
-    /* One section in view at a time, while the page stays a normal scroller.
-       Proximity rather than mandatory: the scroll-scrubbed section needs to be
-       freely scrollable inside itself, and mandatory would yank the page past
-       its intermediate positions. */
-    scroll-snap-type: y proximity;
+    /* Off here. Snapping is switched on for the desktop layout only, at the
+       bottom of this file, where every section is one viewport tall and the
+       scrubbed ones carry their own snap points. */
+    scroll-snap-type: none;
     /* Hide the scrollbar without disabling scrolling. */
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* legacy Edge */
@@ -53,38 +52,10 @@
     overflow-x: clip;
   }
 
-  main > section {
-    scroll-snap-align: start;
-    /* Don't let a flick skip a section entirely. */
-    scroll-snap-stop: always;
-  }
-
-  /* Phones: no snapping. Several sections are taller than a phone viewport, so
-     a snap point at their start is unreachable from below and `stop: always`
-     turns every flick into a fight. Touch momentum already gives the paging
-     feel that snapping was there to provide. */
-  @media (max-width: 767px) {
-    html {
-      scroll-snap-type: none;
-    }
-
-    main > section {
-      scroll-snap-align: none;
-      scroll-snap-stop: normal;
-    }
-  }
-
   /* Header nav is in-page anchors, so jumping instantly is disorienting. */
   @media (prefers-reduced-motion: no-preference) {
     html {
       scroll-behavior: smooth;
-    }
-  }
-
-  /* Forced snapping fights the user when they've asked for less motion. */
-  @media (prefers-reduced-motion: reduce) {
-    html {
-      scroll-snap-type: none;
     }
   }
 
@@ -119,8 +90,11 @@
     }
   }
 
-  /* Last, so it wins over the step above at the same specificity. */
-  @media (max-height: 640px) {
+  /* Last, so it wins over the step above at the same specificity. Narrow only:
+     the header's own height tracks width, not height - 60px on a phone but
+     112px from lg, where the logo is h-20 - so trimming clearance on a short
+     *wide* window puts the section headings underneath the bar. */
+  @media (max-height: 640px) and (max-width: 639px) {
     .pt-header {
       padding-top: 4.5rem;
     }
@@ -141,5 +115,62 @@
   .px-safe {
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
+  }
+}
+
+/*
+ * Desktop: rest on one complete state.
+ *
+ * The page always comes to a stop with exactly one section filling the
+ * viewport, so it reads as one section replacing another rather than a document
+ * sliding past. Three gates, each measured rather than guessed:
+ *
+ * - min-width 1024px, not 768px. That is where the services strip becomes a
+ *   pinned scrub. Between the two it is a ~2200px stacked list, and a mandatory
+ *   snap whose only point is at its start puts its lower half out of reach.
+ * - min-height 700px. Below that the closing section outgrows the viewport
+ *   (672px tall in a 1280x600 window) and has the same problem.
+ * - no-preference. Snapping overrides where the reader chose to stop, which is
+ *   the opposite of what reduced motion asks for.
+ *
+ * Phones are deliberately excluded: several sections are taller than a phone
+ * viewport, and touch momentum already gives the paging feel snapping provides.
+ */
+@media (min-width: 1024px) and (min-height: 700px) and (prefers-reduced-motion: no-preference) {
+  /*
+   * `proximity`, not `mandatory`, and this was measured rather than assumed.
+   *
+   * Snap points here are a viewport apart at the section boundaries. Under
+   * `mandatory` every rest is pulled to the nearest one, so a scroll shorter
+   * than half a viewport is pulled back where it started: a 360px wheel
+   * movement - three notches - could not leave the hero at all, and neither
+   * could 300px. `proximity` leaves a short nudge where the reader put it and
+   * still collects anything that comes to rest near a point: over a full pass
+   * down the page, 86-90% of rests landed exactly on one, and every pass
+   * reached the end.
+   *
+   * What actually earns the "one section" feel is the ladder below, not the
+   * strictness: before it the two four-viewport sections had no snap point
+   * between their start and the next section, so a scroll could stop anywhere
+   * mid-fade with two items half-showing.
+   */
+  html {
+    scroll-snap-type: y proximity;
+  }
+
+  /* Sections that are exactly one viewport tall: one resting place each. */
+  .snap-section {
+    scroll-snap-align: start;
+    /* A flick must never skip a whole section. */
+    scroll-snap-stop: always;
+  }
+
+  /* The per-item ladder inside the two scrubbed sections. See SnapSteps. */
+  [data-snap-step] {
+    scroll-snap-align: start;
+    /* `normal`, not `always`: ten items would otherwise take ten separate
+       flicks. A firm flick may cross several, and still lands on one of them
+       rather than halfway between two. */
+    scroll-snap-stop: normal;
   }
 }

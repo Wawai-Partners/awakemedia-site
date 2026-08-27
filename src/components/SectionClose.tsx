@@ -4,7 +4,7 @@ import { START_HERE_URL } from '../links'
 
 export default function SectionClose() {
   return (
-    <section id="membership" className="flex min-h-screen flex-col justify-between px-5 pt-header pb-[max(3rem,env(safe-area-inset-bottom))] supports-[height:100svh]:min-h-[100svh] sm:px-8 md:px-12 md:pb-16">
+    <section id="membership" className="snap-section flex min-h-screen flex-col justify-between px-5 pt-header pb-[max(3rem,env(safe-area-inset-bottom))] supports-[height:100svh]:min-h-[100svh] sm:px-8 md:px-12 md:pb-16">
       {/* testimonial */}
       <div className="flex flex-1 flex-col justify-center">
         <Reveal delay={220}>

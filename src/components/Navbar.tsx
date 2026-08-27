@@ -60,9 +60,14 @@ export default function Navbar() {
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 px-safe pt-safe">
+      {/* Phones only. The bar is transparent over the footage by design; on a
+          phone the viewport is short enough that body copy runs under it and
+          both become unreadable, which a surface fixes. A desktop viewport is
+          tall enough that the pinned sections clear the bar on their own, so
+          it stays out of the way there. */}
       <div
         aria-hidden="true"
-        className={`pointer-events-none absolute inset-0 border-b bg-[#0a0a0a]/80 backdrop-blur-md transition-opacity duration-300 ${
+        className={`pointer-events-none absolute inset-0 border-b bg-[#0a0a0a]/80 backdrop-blur-md transition-opacity duration-300 lg:hidden ${
           scrolled || open ? 'border-white/10 opacity-100' : 'border-transparent opacity-0'
         }`}
       />

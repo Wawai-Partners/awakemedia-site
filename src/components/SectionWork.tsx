@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Reveal from './Reveal'
+import SnapSteps from './SnapSteps'
 import { onScrollFrame, runwayProgress } from '../scroll'
 import imgProductStrat from '../images/aN5_a55xUNkB1acx_01.ProductStrat.avif'
 import imgAppWeb from '../images/aN5_bZ5xUNkB1acy_02.App&Web.avif'
@@ -99,6 +100,12 @@ const WORK = [
     body: 'Longer-form work from treatment through final grade, for when a short clip cannot carry the story.',
   },
 ]
+
+/**
+ * Where the page may come to rest inside this section: exactly one per item,
+ * at the same offsets goTo() aims at, so a click and a scroll agree.
+ */
+const SNAP_AT = Array.from({ length: WORK.length }, (_, i) => i / (WORK.length - 1))
 
 export default function SectionWork() {
   // Only the whole-number item is React's business. `pos` is continuous and
@@ -228,6 +235,7 @@ export default function SectionWork() {
     // Tall on purpose: the extra height is the scroll runway that steps through
     // the eight items while the panel below stays pinned. ~50vh per item.
     <section ref={sectionRef} id="additional-services" className="relative lg:h-[420vh]">
+      <SnapSteps at={SNAP_AT} />
       {/* Below lg this is a plain block in normal flow. It used to be a pinned
           h-screen flex column with the eight cards as flex children: they were
           shrunk to nothing to fit, so the whole section rendered as an empty
@@ -235,7 +243,7 @@ export default function SectionWork() {
       <div className="flex flex-col justify-center gap-8 px-5 pb-16 pt-header sm:px-8 md:px-12 lg:sticky lg:top-0 lg:h-screen lg:pb-16 lg:supports-[height:100svh]:h-[100svh]">
         {/* Heading left, supporting copy right. Stacks below lg, where there is
             no room to sit them side by side. */}
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between lg:gap-12">
+        <div className="flex flex-col gap-6 lg:shrink-0 lg:flex-row lg:items-end lg:justify-between lg:gap-12">
           <Reveal delay={180}>
             <h2 className="max-w-xl text-3xl font-bold leading-[1.08] tracking-normal text-white drop-shadow-lg sm:text-5xl lg:text-6xl">
               ADDITIONAL SERVICES AVAILABLE
@@ -267,12 +275,18 @@ export default function SectionWork() {
             ~1700px column almost entirely covered by opaque card art, so the
             blur shows through in the 8px gutters alone and costs a re-raster
             of the whole column on every scrolled frame to do it. */}
-        <div className="overflow-hidden rounded-2xl border border-white/20 bg-white/5 p-2 lg:-mr-12 lg:rounded-r-none lg:border-r-0 lg:backdrop-blur-md">
-          <Reveal delay={280}>
+        {/* lg:flex-1 + lg:min-h-0, and the strip below sizes to it. The strip
+            used to be a hard 520px inside this box, but `overflow-hidden`
+            makes a flex item's `min-height: auto` resolve to zero, so the box
+            shrank to whatever was left over - 474px at 1440x900, 214px at
+            1280x600 - and clipped the difference off the bottom, which is
+            exactly where justify-end puts each card's title and description. */}
+        <div className="overflow-hidden rounded-2xl border border-white/20 bg-white/5 p-2 lg:-mr-12 lg:min-h-0 lg:flex-1 lg:rounded-r-none lg:border-r-0 lg:backdrop-blur-md">
+          <Reveal delay={280} className="lg:h-full">
             {/* Below lg: a plain vertical stack. From lg: each panel is placed
                 by transform, so passed items pile up on the left instead of
                 sliding away. */}
-            <ul ref={listRef} className="flex h-auto flex-col gap-2 lg:relative lg:block lg:h-[520px]">
+            <ul ref={listRef} className="flex h-auto flex-col gap-2 lg:relative lg:block lg:h-full">
             {WORK.map((item, i) => {
               // Below lg every card is on screen at once, so "the current
               // one" has no meaning: give them all the open treatment rather
@@ -342,8 +356,13 @@ export default function SectionWork() {
                         again: the number-only compromise was only needed while
                         collapsed strips were ~44px. Stacked panels keep their
                         title too; the overlap simply clips it. */}
+                    {/* line-clamp from lg only: the strip now sizes to the
+                        window, so on a short one the text has to give way at a
+                        line boundary instead of being sliced through. The
+                        stacked layout below lg has fixed card heights the copy
+                        already fits, so it keeps every line. */}
                     <span
-                      className={`font-medium leading-snug tracking-tight text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] ${
+                      className={`font-medium leading-snug tracking-tight text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] lg:line-clamp-2 ${
                         open ? 'text-base sm:text-lg lg:text-2xl' : 'text-base lg:text-lg'
                       }`}
                     >
@@ -352,7 +371,7 @@ export default function SectionWork() {
                     <p
                       // Always shown. Panels are wide enough to carry it now, and
                       // the left-hand pile simply clips what it overlaps.
-                      className="max-w-md text-[13px] leading-snug text-white/85 drop-shadow-md sm:text-sm sm:leading-relaxed"
+                      className="max-w-md text-[13px] leading-snug text-white/85 drop-shadow-md sm:text-sm sm:leading-relaxed lg:line-clamp-3"
                     >
                       {item.body}
                     </p>
@@ -367,7 +386,7 @@ export default function SectionWork() {
         {/* Purple progress rail: the only cue that this section holds more than
             what is on screen, since the page scroll is what advances it. */}
         <div
-          className="hidden lg:-mr-12 lg:block"
+          className="hidden lg:-mr-12 lg:block lg:shrink-0"
           role="progressbar"
           aria-label="Service list position"
           aria-valuemin={1}

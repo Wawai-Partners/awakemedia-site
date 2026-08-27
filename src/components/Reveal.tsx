@@ -232,7 +232,14 @@ export default function Reveal({
 
   const duration = compact ? COMPACT_ENTER_MS : visible ? ENTER_MS : EXIT_MS
   const easing = visible ? ENTER_EASE : EXIT_EASE
-  const hidden = compact ? COMPACT_OUT : hasEntered ? exitTransform() : OUT_TRANSFORM[origin]
+  const hidden = compact
+    ? COMPACT_OUT
+    : // A section that asked for the straight rise keeps it in both directions.
+      origin === 'bottom'
+      ? OUT_TRANSFORM.bottom
+      : hasEntered
+        ? exitTransform()
+        : OUT_TRANSFORM[origin]
   // Staggering a whole section by 700ms is a long time to look at a blank
   // screen on a phone, where the section fills the viewport on its own.
   const enterDelay = compact ? Math.round(delay * 0.45) : delay
