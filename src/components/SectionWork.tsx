@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Reveal from './Reveal'
+import SnapSteps from './SnapSteps'
 import { onScrollFrame, runwayProgress } from '../scroll'
 import imgProductStrat from '../images/aN5_a55xUNkB1acx_01.ProductStrat.avif'
 import imgAppWeb from '../images/aN5_bZ5xUNkB1acy_02.App&Web.avif'
@@ -99,6 +100,12 @@ const WORK = [
     body: 'Longer-form work from treatment through final grade, for when a short clip cannot carry the story.',
   },
 ]
+
+/**
+ * Where the page may come to rest inside this section: exactly one per item,
+ * at the same offsets goTo() aims at, so a click and a scroll agree.
+ */
+const SNAP_AT = Array.from({ length: WORK.length }, (_, i) => i / (WORK.length - 1))
 
 export default function SectionWork() {
   // Only the whole-number item is React's business. `pos` is continuous and
@@ -228,6 +235,7 @@ export default function SectionWork() {
     // Tall on purpose: the extra height is the scroll runway that steps through
     // the eight items while the panel below stays pinned. ~50vh per item.
     <section ref={sectionRef} id="additional-services" className="relative lg:h-[420vh]">
+      <SnapSteps at={SNAP_AT} />
       {/* Below lg this is a plain block in normal flow. It used to be a pinned
           h-screen flex column with the eight cards as flex children: they were
           shrunk to nothing to fit, so the whole section rendered as an empty

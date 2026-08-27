@@ -2,7 +2,7 @@ import Reveal from './Reveal'
 
 export default function SectionStatement() {
   return (
-    <section className="flex min-h-screen flex-col justify-center px-5 pb-12 pt-header supports-[height:100svh]:min-h-[100svh] sm:px-8 md:px-12 md:pb-16">
+    <section className="snap-section flex min-h-screen flex-col justify-center px-5 pb-12 pt-header supports-[height:100svh]:min-h-[100svh] sm:px-8 md:px-12 md:pb-16">
       {/* statement: rounded corner brackets */}
       <Reveal delay={120}>
         <div className="relative mx-auto max-w-6xl px-4 py-10 text-center sm:px-12 sm:py-16">

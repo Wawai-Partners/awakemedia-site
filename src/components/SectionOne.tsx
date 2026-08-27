@@ -4,7 +4,7 @@ import { REGISTER_DOMAIN_URL, START_HERE_URL } from '../links'
 
 export default function SectionOne() {
   return (
-    <section className="flex min-h-screen flex-col items-center justify-center px-5 pb-12 pt-header text-center supports-[height:100svh]:min-h-[100svh] sm:px-8 md:px-12 md:pb-16">
+    <section className="snap-section flex min-h-screen flex-col items-center justify-center px-5 pb-12 pt-header text-center supports-[height:100svh]:min-h-[100svh] sm:px-8 md:px-12 md:pb-16">
       <Reveal delay={200}>
         {/* text-6xl on a 375px screen wrapped to five lines and pushed both CTAs
             past the fold. Start at 36px and only scale up once there is room. */}
