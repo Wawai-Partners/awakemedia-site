@@ -119,8 +119,11 @@
     }
   }
 
-  /* Last, so it wins over the step above at the same specificity. */
-  @media (max-height: 640px) {
+  /* Last, so it wins over the step above at the same specificity. Narrow only:
+     the header's own height tracks width, not height - 60px on a phone but
+     112px from lg, where the logo is h-20 - so trimming clearance on a short
+     *wide* window puts the section headings underneath the bar. */
+  @media (max-height: 640px) and (max-width: 639px) {
     .pt-header {
       padding-top: 4.5rem;
     }
