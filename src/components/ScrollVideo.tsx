@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { onScrollFrame } from '../scroll'
 
 type ScrollVideoProps = {
   src: string
@@ -68,23 +69,27 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
 
   const [hasFrame, setHasFrame] = useState(false)
   const [framesReady, setFramesReady] = useState(false)
+  /**
+   * The <video> exists only to hold the screen until the frame cache is warm.
+   * Once the canvas is driving, a mounted element still pins its decoder and
+   * the buffered clip - which is 27MB here - in memory for the life of the
+   * page, on the device least able to spare it. Unmount it, one crossfade
+   * after the canvas takes over.
+   */
+  const [videoRetired, setVideoRetired] = useState(false)
 
   // ---- scroll progress -----------------------------------------------------
-  useEffect(() => {
-    const update = () => {
-      const max = document.documentElement.scrollHeight - window.innerHeight
-      const progress = max > 0 ? window.scrollY / max : 0
-      targetRef.current = Math.min(1, Math.max(0, progress))
-    }
-
-    update()
-    window.addEventListener('scroll', update, { passive: true })
-    window.addEventListener('resize', update)
-    return () => {
-      window.removeEventListener('scroll', update)
-      window.removeEventListener('resize', update)
-    }
-  }, [])
+  // Rides the shared ticker: the page height and viewport come already
+  // measured, so this no longer reads scrollHeight on every scroll event.
+  useEffect(
+    () =>
+      onScrollFrame(({ y, vh, pageHeight }) => {
+        const max = pageHeight - vh
+        const progress = max > 0 ? y / max : 0
+        targetRef.current = Math.min(1, Math.max(0, progress))
+      }),
+    [],
+  )
 
   // ---- canvas sizing -------------------------------------------------------
   useEffect(() => {
@@ -99,7 +104,8 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       canvas.width = w
       canvas.height = h
       // Resizing the backing store resets context state, so re-apply the DPR
-      // transform and let the render loop repaint on the next frame.
+      // transform. The render loop notices the changed client size and
+      // repaints on the next frame.
       canvas.getContext('2d')?.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
 
@@ -112,6 +118,20 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       window.removeEventListener('resize', resize)
     }
   }, [])
+
+  // A new clip starts the handover over again.
+  useEffect(() => {
+    setHasFrame(false)
+    setFramesReady(false)
+    setVideoRetired(false)
+  }, [src])
+
+  useEffect(() => {
+    if (!framesReady) return
+    // FADE_MS, so the handover is a crossfade rather than a cut.
+    const id = window.setTimeout(() => setVideoRetired(true), 600)
+    return () => window.clearTimeout(id)
+  }, [framesReady])
 
   // ---- first decoded frame -------------------------------------------------
   useEffect(() => {
@@ -135,7 +155,10 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
     // would be a no-op burning battery every frame.
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
 
-    let raf = 0
+    /** Frame index currently painted, so an unchanged one is not repainted. */
+    let paintedIndex = -1
+    let paintedW = 0
+    let paintedH = 0
 
     const drawCover = (
       ctx: CanvasRenderingContext2D,
@@ -153,8 +176,6 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
     }
 
     const tick = () => {
-      raf = requestAnimationFrame(tick)
-
       smoothedRef.current += (targetRef.current - smoothedRef.current) * LERP
       const progress = smoothedRef.current
 
@@ -168,9 +189,17 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
           frames.length - 1,
           Math.max(0, Math.round(progress * (frames.length - 1))),
         )
-        const bitmap = frames[index]
         const cw = canvas.clientWidth
         const ch = canvas.clientHeight
+        // The cache holds 36 to 90 frames over the whole page, so most frames
+        // of a scroll land on the same one. Clearing and re-drawing a
+        // full-bleed canvas to put back the identical pixels is the most
+        // expensive no-op on the page.
+        if (index === paintedIndex && cw === paintedW && ch === paintedH) return
+        paintedIndex = index
+        paintedW = cw
+        paintedH = ch
+        const bitmap = frames[index]
         ctx.clearRect(0, 0, cw, ch)
         drawCover(ctx, bitmap, bitmap.width, bitmap.height, cw, ch)
         return
@@ -190,8 +219,7 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       }
     }
 
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
+    return onScrollFrame(tick)
   }, [])
 
   // ---- frame cache extraction ---------------------------------------------
@@ -208,11 +236,14 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       // bandwidth / decode time.
       await new Promise<void>((resolve) => {
         const video = videoRef.current
-        if (video && video.readyState >= 2) {
+        // No element to wait on (already retired after an earlier cache):
+        // go straight to extracting rather than waiting for an event that
+        // can never fire.
+        if (!video || video.readyState >= 2) {
           resolve()
           return
         }
-        video?.addEventListener('loadeddata', () => resolve(), { once: true })
+        video.addEventListener('loadeddata', () => resolve(), { once: true })
       })
       await new Promise((resolve) => window.setTimeout(resolve, 300))
       if (cancelled) return
@@ -299,17 +330,19 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
         />
       ) : null}
 
-      <video
-        ref={videoRef}
-        src={src}
-        muted
-        playsInline
-        preload="auto"
-        aria-hidden="true"
-        className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${
-          hasFrame && !framesReady ? 'opacity-100' : 'opacity-0'
-        }`}
-      />
+      {videoRetired ? null : (
+        <video
+          ref={videoRef}
+          src={src}
+          muted
+          playsInline
+          preload="auto"
+          aria-hidden="true"
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${
+            hasFrame && !framesReady ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+      )}
 
       <canvas
         ref={canvasRef}

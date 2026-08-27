@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Reveal from './Reveal'
+import { onScrollFrame, runwayProgress } from '../scroll'
 import imgProductStrat from '../images/aN5_a55xUNkB1acx_01.ProductStrat.avif'
 import imgAppWeb from '../images/aN5_bZ5xUNkB1acy_02.App&Web.avif'
 import imgBrand from '../images/aN5_b55xUNkB1acz_03.Brand.avif'
@@ -100,28 +101,39 @@ const WORK = [
 ]
 
 export default function SectionWork() {
-  const [pos, setPos] = useState(0)
+  // Only the whole-number item is React's business. `pos` is continuous and
+  // drives eight inline transforms: as state it re-rendered this section and
+  // reconciled all eight panels on every frame of the scroll, which was the
+  // single most expensive thing on the page while it moved.
+  const [active, setActive] = useState(0)
   // The stacking layout only exists from lg. Tracked in JS because the offset
   // has to be a real inline transform value, not a CSS variable: `transition`
   // cannot interpolate a custom property, so a var-based transform freezes at
   // its first value.
   const [isWide, setIsWide] = useState(false)
-  const [rowW, setRowW] = useState(0)
   const sectionRef = useRef<HTMLElement | null>(null)
   const listRef = useRef<HTMLUListElement | null>(null)
-
-  // The row width drives every panel size, so it has to be measured, not assumed.
-  useEffect(() => {
-    const el = listRef.current
-    if (!el) return
-    const observer = new ResizeObserver(([entry]) => setRowW(entry.contentRect.width))
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
+  const railRef = useRef<HTMLDivElement | null>(null)
+  const itemRefs = useRef<(HTMLLIElement | null)[]>([])
+  /** Mirrors isWide for the frame callback, which never re-closes over state. */
+  const wideRef = useRef(false)
 
   useEffect(() => {
     const query = window.matchMedia('(min-width: 1024px)')
-    const sync = () => setIsWide(query.matches)
+    const sync = () => {
+      wideRef.current = query.matches
+      setIsWide(query.matches)
+      // Leaving the wide layout has to hand the panels back to CSS; an inline
+      // transform and width from the strip would otherwise survive into the
+      // stacked layout and pin every card to the first one's box.
+      if (!query.matches) {
+        for (const node of itemRefs.current) {
+          if (!node) continue
+          node.style.transform = ''
+          node.style.width = ''
+        }
+      }
+    }
     sync()
     query.addEventListener('change', sync)
     return () => query.removeEventListener('change', sync)
@@ -130,35 +142,67 @@ export default function SectionWork() {
   // Scroll drives the strip. This is pin-and-scrub, not scroll-jacking: the
   // wheel is never intercepted, we only read where the page already is.
   useEffect(() => {
-    let frame = 0
+    const el = sectionRef.current
+    const list = listRef.current
+    if (!el || !list) return
 
+    // Cached rather than read per frame: getBoundingClientRect and
+    // contentRect.width both force a layout to answer, and this ran every
+    // frame alongside the writes below, which is the classic thrash.
+    let top = 0
+    let height = 0
+    let rowW = 0
     const measure = () => {
-      frame = 0
-      const el = sectionRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      const scrubDistance = rect.height - window.innerHeight
-      if (scrubDistance <= 0) {
-        setPos(0)
-        return
+      top = el.offsetTop
+      height = el.offsetHeight
+      rowW = list.clientWidth
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    observer.observe(list)
+
+    let lastActive = -1
+    let lastPos = -1
+
+    const unsubscribe = onScrollFrame(({ y, vh, moved }) => {
+      if (!moved && lastPos >= 0) return
+      const progress = height - vh <= 0 ? 0 : runwayProgress(top, height, y, vh)
+      const pos = progress * (WORK.length - 1)
+
+      const next = Math.round(pos)
+      if (next !== lastActive) {
+        lastActive = next
+        setActive(next)
       }
-      const progress = Math.min(1, Math.max(0, -rect.top / scrubDistance))
-      setPos(progress * (WORK.length - 1))
-    }
 
-    // One read per frame: scroll fires far more often than the screen repaints.
-    const sync = () => {
-      if (frame) return
-      frame = requestAnimationFrame(measure)
-    }
+      // Exact, not quantised: rounding the comparison left the rail stopping
+      // at 99.97% and the last panel two pixels short. This still skips every
+      // frame scrolled outside this section's runway, where progress is
+      // clamped and pos does not actually change, which is what the guard is
+      // here for.
+      if (pos === lastPos) return
+      lastPos = pos
 
-    sync()
-    window.addEventListener('scroll', sync, { passive: true })
-    window.addEventListener('resize', sync)
+      const rail = railRef.current
+      if (rail) rail.style.width = `${((pos + 1) / WORK.length) * 100}%`
+
+      // The stacking geometry only exists from lg; below it the panels are a
+      // plain stack and must keep their CSS-driven size.
+      if (!wideRef.current || rowW <= 0) return
+      const g = geometry(rowW, WORK.length)
+      for (let i = 0; i < WORK.length; i++) {
+        const node = itemRefs.current[i]
+        if (!node) continue
+        const box = boxAt(i, pos, g, WORK.length)
+        node.style.transform = `translateX(${box.x}px)`
+        node.style.width = `${box.w}px`
+      }
+    })
+
     return () => {
-      if (frame) cancelAnimationFrame(frame)
-      window.removeEventListener('scroll', sync)
-      window.removeEventListener('resize', sync)
+      unsubscribe()
+      observer.disconnect()
     }
   }, [])
 
@@ -179,12 +223,6 @@ export default function SectionWork() {
     const offset = (index / (WORK.length - 1)) * scrubDistance
     window.scrollTo({ top: el.offsetTop + offset })
   }
-
-  const g = geometry(rowW, WORK.length)
-  // Only place panels once the row has actually been measured.
-  const placed = isWide && rowW > 0
-  // Labels, aria and the rail read the nearest whole item.
-  const active = Math.round(pos)
 
   return (
     // Tall on purpose: the extra height is the scroll runway that steps through
@@ -225,7 +263,11 @@ export default function SectionWork() {
             Bleeds past the section padding on the right (-mr) with no right
             border or rounding, so the strip row reads as continuing off-screen
             instead of ending in a boundary. */}
-        <div className="overflow-hidden rounded-2xl border border-white/20 bg-white/5 p-2 backdrop-blur-md lg:-mr-12 lg:rounded-r-none lg:border-r-0">
+        {/* backdrop-blur only from lg. In the stacked layout the panel is a
+            ~1700px column almost entirely covered by opaque card art, so the
+            blur shows through in the 8px gutters alone and costs a re-raster
+            of the whole column on every scrolled frame to do it. */}
+        <div className="overflow-hidden rounded-2xl border border-white/20 bg-white/5 p-2 lg:-mr-12 lg:rounded-r-none lg:border-r-0 lg:backdrop-blur-md">
           <Reveal delay={280}>
             {/* Below lg: a plain vertical stack. From lg: each panel is placed
                 by transform, so passed items pile up on the left instead of
@@ -242,13 +284,13 @@ export default function SectionWork() {
               return (
                 <li
                   key={item.index}
-                  style={{
-                    transform: placed ? `translateX(${boxAt(i, pos, g, WORK.length).x}px)` : undefined,
-                    width: placed ? boxAt(i, pos, g, WORK.length).w : undefined,
-                    // Later panels sit above earlier ones so the left-hand pile
-                    // reads as a deck, newest card on top.
-                    zIndex: i,
+                  ref={(node) => {
+                    itemRefs.current[i] = node
                   }}
+                  // Later panels sit above earlier ones so the left-hand pile
+                  // reads as a deck, newest card on top. The transform and
+                  // width are written by the scroll effect, not from render.
+                  style={{ zIndex: i }}
                   className="relative h-44 shrink-0 overflow-hidden rounded-xl sm:h-52 lg:absolute lg:left-0 lg:top-0 lg:h-full lg:shrink"
                 >
                   <img
@@ -333,10 +375,7 @@ export default function SectionWork() {
           aria-valuenow={active + 1}
         >
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/15">
-            <div
-              className="h-full rounded-full bg-violet-500"
-              style={{ width: `${((pos + 1) / WORK.length) * 100}%` }}
-            />
+            <div ref={railRef} className="h-full rounded-full bg-violet-500" />
           </div>
         </div>
       </div>

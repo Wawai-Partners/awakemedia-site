@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Menu, X } from 'lucide-react'
 import Reveal from './Reveal'
+import { onScrollFrame } from '../scroll'
 import { START_HERE_URL } from '../links'
 
 const LINKS = [
@@ -21,12 +22,10 @@ export default function Navbar() {
   // The header is transparent over the hero by design, but the page scrolls
   // *under* it: without a surface, body copy collides with the logo and the
   // CTA and both become unreadable. Fade one in once the hero is behind us.
-  useEffect(() => {
-    const sync = () => setScrolled(window.scrollY > SOLID_AFTER)
-    sync()
-    window.addEventListener('scroll', sync, { passive: true })
-    return () => window.removeEventListener('scroll', sync)
-  }, [])
+  useEffect(
+    () => onScrollFrame(({ y }) => setScrolled(y > SOLID_AFTER)),
+    [],
+  )
 
   // The drawer covers the page, so the page behind it must not scroll: on iOS
   // a scrollable body under a fixed overlay is what makes the overlay drift.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Reveal from './Reveal'
+import { onScrollFrame, runwayProgress } from '../scroll'
 
 const ITEMS = [
   {
@@ -65,45 +66,64 @@ const STEPS = ITEMS.length + 1
 const STEP_SPAN = 0.88
 
 export default function SectionTwo() {
+  // `step` is one of eleven discrete values, so React owning it costs eleven
+  // renders across the whole section. The exit ramp below is continuous and is
+  // written straight to the node instead: as state it re-rendered the section
+  // and its eleven stages on every single frame of the scroll.
   const [step, setStep] = useState(0)
-  const [progress, setProgress] = useState(0)
   const sectionRef = useRef<HTMLElement | null>(null)
+  const shellRef = useRef<HTMLDivElement | null>(null)
 
   // Pin and scrub: the wheel is never intercepted, we only read where the page
   // already is, then map that onto which single item is on stage.
   useEffect(() => {
-    let frame = 0
+    const el = sectionRef.current
+    if (!el) return
 
+    // getBoundingClientRect forces a layout to answer and was being called
+    // every frame. The section's own box only changes on resize, so measure it
+    // there and derive progress from the shared frame's scrollY.
+    let top = 0
+    let height = 0
     const measure = () => {
-      frame = 0
-      const el = sectionRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      const scrub = rect.height - window.innerHeight
-      if (scrub <= 0) {
-        setStep(0)
-        setProgress(0)
-        return
-      }
-      const p = Math.min(1, Math.max(0, -rect.top / scrub))
-      setProgress(p)
+      top = el.offsetTop
+      height = el.offsetHeight
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+
+    let lastStep = -1
+    let lastExit = -1
+
+    const unsubscribe = onScrollFrame(({ y, vh, moved }) => {
+      if (!moved && lastStep >= 0) return
+      const p = runwayProgress(top, height, y, vh)
+
       const stepped = Math.min(1, p / STEP_SPAN)
-      setStep(Math.min(STEPS - 1, Math.floor(stepped * STEPS)))
-    }
+      const next = height - vh <= 0 ? 0 : Math.min(STEPS - 1, Math.floor(stepped * STEPS))
+      if (next !== lastStep) {
+        lastStep = next
+        setStep(next)
+      }
 
-    // One read per frame: scroll fires far more often than the screen repaints.
-    const sync = () => {
-      if (frame) return
-      frame = requestAnimationFrame(measure)
-    }
+      const shell = shellRef.current
+      if (!shell) return
+      const exitT = Math.max(0, (p - STEP_SPAN) / (1 - STEP_SPAN))
+      // Exact rather than quantised, so the ramp lands on precisely 0 and 1.
+      // This still skips the whole of the rest of the page, where exitT is
+      // pinned at 0 and writing the style again would only invalidate it.
+      if (exitT === lastExit) return
+      lastExit = exitT
+      shell.style.opacity = String(1 - exitT)
+      shell.style.transform = `translate3d(${-90 * exitT}px, ${-70 * exitT}px, 0) rotate(${-8 * exitT}deg) scale(${1 - 0.08 * exitT})`
+      // Only ask for a layer while the ramp is actually running.
+      shell.style.willChange = exitT > 0 && exitT < 1 ? 'transform, opacity' : ''
+    })
 
-    sync()
-    window.addEventListener('scroll', sync, { passive: true })
-    window.addEventListener('resize', sync)
     return () => {
-      if (frame) cancelAnimationFrame(frame)
-      window.removeEventListener('scroll', sync)
-      window.removeEventListener('resize', sync)
+      unsubscribe()
+      observer.disconnect()
     }
   }, [])
 
@@ -124,20 +144,6 @@ export default function SectionTwo() {
     }
   }
 
-  /**
-   * Exit is driven by scroll, not by an observer. The stage sits inside a pinned
-   * container, so it never actually leaves the viewport while the section is
-   * held: an IntersectionObserver can only fire once the sticky releases, which
-   * reads as a snap rather than a fade. Ramping it over the reserved tail ties
-   * the fade to where the reader is, and reverses on the way back up.
-   */
-  const exitT = Math.max(0, (progress - STEP_SPAN) / (1 - STEP_SPAN))
-  const stageShell = {
-    opacity: 1 - exitT,
-    transform: `translate3d(${-90 * exitT}px, ${-70 * exitT}px, 0) rotate(${-8 * exitT}deg) scale(${1 - 0.08 * exitT})`,
-    willChange: 'transform, opacity',
-  }
-
   return (
     // Tall on purpose: the extra height is the runway the items step along.
     <section ref={sectionRef} id="whats-included" className="relative h-[420vh] supports-[height:100svh]:h-[420svh]">
@@ -145,8 +151,14 @@ export default function SectionTwo() {
         {/* One fixed-height stage with every step stacked inside it, so swapping
             copy never shifts the CTA and rail below. */}
         <Reveal delay={120} className="w-full">
+          {/* Exit is driven by scroll, not by an observer. The stage sits
+              inside a pinned container, so it never actually leaves the
+              viewport while the section is held: an IntersectionObserver can
+              only fire once the sticky releases, which reads as a snap rather
+              than a fade. The effect above ramps it over the reserved tail so
+              the fade tracks the reader, and reverses on the way back up. */}
           <div
-            style={stageShell}
+            ref={shellRef}
             className="relative mx-auto h-[360px] w-full max-w-5xl sm:h-[440px] lg:h-[410px]"
           >
             <div
