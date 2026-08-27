@@ -1,219 +1,87 @@
-import { useEffect, useRef, useState } from 'react'
 import Reveal from './Reveal'
-import SnapSteps from './SnapSteps'
-import { onScrollFrame, runwayProgress } from '../scroll'
 
-const ITEMS = [
-  {
-    index: '01',
-    title: 'Domain Name Registration',
-    body: 'We register it and point it where it belongs, with no half-finished transfers left with you.',
-  },
-  {
-    index: '02',
-    title: 'Hosting Setup',
-    body: 'Managed hosting configured before you ever log in. No server decisions land on your desk.',
-  },
-  {
-    index: '03',
-    title: 'Email Setup',
-    body: 'Addresses on your own domain, tested so your mail lands in inboxes, not spam folders.',
-  },
-  {
-    index: '04',
-    title: 'WordPress pre-installed and ready for content',
-    body: 'You arrive to a working site, not an empty install. Log in and start writing.',
-  },
-  {
-    index: '05',
-    title: 'Divi Premium Theme Pre-installed ($90 value)',
-    body: 'Licensed and activated already, so a layout change never waits on a purchase.',
-  },
-  {
-    index: '06',
-    title: 'Security, back-up, analytics and site speed plugins pre-installed',
-    body: 'Protected, backed up, measured and quick: configured for you, not merely installed.',
-  },
-  {
-    index: '07',
-    title: 'Contact Form & SMTP Activation for Deliverability',
-    body: 'A form that actually reaches you, with mail authentication so enquiries stop vanishing.',
-  },
-  {
-    index: '08',
-    title: 'Video tutorial walk-through on how to edit content on your website',
-    body: 'Short videos on editing your own pages, with no digging through forums for the right button.',
-  },
-  {
-    index: '09',
-    title: 'Ongoing Daily Website Updates and Maintenance',
-    body: 'Core, theme and plugins updated every day, before a small issue becomes an outage.',
-  },
-  {
-    index: '10',
-    title: 'Access to Website is a Week Workshop Live or Video Tutorials',
-    body: 'Join the workshop live or take it at your own pace on video, whichever fits your week.',
-  },
+const CHECK_ICON =
+  'https://cdn.prod.website-files.com/6720dd1ab6df0da205830ab1/686cc068490683bbb3377d04_bullet-list.svg'
+
+/** The original ten "What's Included" items, split 5/5 across the two columns. */
+const INCLUDED_LEFT = [
+  'Domain Name Registration',
+  'Hosting Setup',
+  'Email Setup',
+  'WordPress Pre-Installed',
+  'Divi Premium Theme ($90 value)',
 ]
 
-/** Step 0 is the heading; steps 1 to 10 are the items. */
-const STEPS = ITEMS.length + 1
+const INCLUDED_RIGHT = [
+  'Security, Backup & Speed Plugins',
+  'Contact Form & SMTP Activation',
+  'Video Tutorial Walk-Through',
+  'Ongoing Daily Maintenance',
+  'Website Workshop Access',
+]
 
-/**
- * Where the page may come to rest inside this section: the middle of each
- * step's band, so it lands solidly on that step rather than on a boundary
- * where the next one is already fading in. Step 0 rests at the section's very
- * start instead, that being its own entrance.
- */
-const SNAP_AT = Array.from({ length: STEPS }, (_, i) => (i === 0 ? 0 : (i + 0.5) / STEPS))
+function IncludedCard({ title, delay }: { title: string; delay: number }) {
+  return (
+    // The blur surface sits outside Reveal on purpose: Reveal applies a
+    // transform (and, mid-transition, will-change), which makes its own box a
+    // backdrop root. backdrop-filter inside one can then only sample that
+    // root's own near-empty layer instead of the real scrolling footage behind
+    // it, which is what made the blur look stale/delayed. Revealing the text
+    // alone, inside an already-blurred, untransformed card, keeps the blur
+    // live while still letting the copy animate in.
+    <div
+      className="h-full overflow-hidden rounded-xl border border-white/20 bg-white/5 backdrop-blur-md"
+    >
+      <Reveal delay={delay} className="flex h-full items-center">
+        <div
+          className="flex items-center"
+          style={{ gap: '14px', padding: 'clamp(14px, 1.2vw, 20px) clamp(16px, 1.4vw, 24px)' }}
+        >
+          <img
+            src={CHECK_ICON}
+            alt=""
+            aria-hidden="true"
+            style={{ width: 'clamp(20px, 1.6vw, 26px)', flexShrink: 0 }}
+          />
+          <div className="font-medium leading-snug text-white/90">{title}</div>
+        </div>
+      </Reveal>
+    </div>
+  )
+}
 
 export default function SectionTwo() {
-  // `step` is one of eleven discrete values, so React owning it costs eleven
-  // renders across the whole section. The exit ramp below is continuous and is
-  // written straight to the node instead: as state it re-rendered the section
-  // and its eleven stages on every single frame of the scroll.
-  const [step, setStep] = useState(0)
-  const sectionRef = useRef<HTMLElement | null>(null)
-  const shellRef = useRef<HTMLDivElement | null>(null)
-
-  // Pin and scrub: the wheel is never intercepted, we only read where the page
-  // already is, then map that onto which single item is on stage.
-  useEffect(() => {
-    const el = sectionRef.current
-    if (!el) return
-
-    // getBoundingClientRect forces a layout to answer and was being called
-    // every frame. The section's own box only changes on resize, so measure it
-    // there and derive progress from the shared frame's scrollY.
-    let top = 0
-    let height = 0
-    const measure = () => {
-      top = el.offsetTop
-      height = el.offsetHeight
-    }
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
-
-    let lastStep = -1
-    let lastExit = -1
-
-    const unsubscribe = onScrollFrame(({ y, vh, moved }) => {
-      if (!moved && lastStep >= 0) return
-      const p = runwayProgress(top, height, y, vh)
-
-      // The steps now use the whole runway. They used to stop at 88% of it,
-      // with the last 12% reserved for the exit below.
-      const next = height - vh <= 0 ? 0 : Math.min(STEPS - 1, Math.floor(p * STEPS))
-      if (next !== lastStep) {
-        lastStep = next
-        setStep(next)
-      }
-
-      const shell = shellRef.current
-      if (!shell) return
-      /**
-       * The exit runs over the tail: the one viewport the pinned block spends
-       * sliding away after it stops sticking.
-       *
-       * It used to run over the last 12% of the runway, which finished the fade
-       * *before* the slide-out began - leaving the tail at a measured 0% of
-       * content, a full screen of nothing between this section and the next.
-       * Running it here fills that screen with the block leaving, which is what
-       * the neighbouring section already does and reads as continuous. Pulling
-       * the next section up over the tail instead only traded the blank screen
-       * for two headings printed on top of each other.
-       */
-      const tailStart = top + height - vh
-      const exitT = vh > 0 ? Math.min(1, Math.max(0, (y - tailStart) / vh)) : 0
-      // Exact rather than quantised, so the ramp lands on precisely 0 and 1.
-      // This still skips the whole of the rest of the page, where exitT is
-      // pinned at 0 and writing the style again would only invalidate it.
-      if (exitT === lastExit) return
-      lastExit = exitT
-      shell.style.opacity = String(1 - exitT)
-      shell.style.transform = `translate3d(${-90 * exitT}px, ${-70 * exitT}px, 0) rotate(${-8 * exitT}deg) scale(${1 - 0.08 * exitT})`
-      // Only ask for a layer while the ramp is actually running.
-      shell.style.willChange = exitT > 0 && exitT < 1 ? 'transform, opacity' : ''
-    })
-
-    return () => {
-      unsubscribe()
-      observer.disconnect()
-    }
-  }, [])
-
-  /**
-   * Every step stays mounted so a screen reader still receives all ten items in
-   * order; only one is visible at a time. Steps already passed leave upward and
-   * steps still ahead wait below, so the swap reads as forward travel.
-   */
-  const stageStyle = (i: number) => {
-    const delta = i - step
-    return {
-      opacity: delta === 0 ? 1 : 0,
-      transform: delta === 0 ? 'translateY(0)' : `translateY(${delta < 0 ? -28 : 28}px)`,
-      transitionProperty: 'opacity, transform',
-      transitionDuration: '420ms',
-      transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
-      pointerEvents: 'none' as const,
-    }
-  }
-
   return (
-    // Tall on purpose: the extra height is the runway the items step along.
     <section
-      ref={sectionRef}
       id="whats-included"
-      className="relative h-[420vh] supports-[height:100svh]:h-[420svh]"
+      className="snap-section flex flex-col items-center justify-center gap-6 px-5 py-12 pt-header sm:px-8 sm:gap-8 md:px-12 md:pb-16 lg:min-h-screen lg:supports-[height:100svh]:min-h-[100svh]"
     >
-      <SnapSteps at={SNAP_AT} />
-      <div className="sticky top-0 flex h-screen flex-col items-center justify-center gap-10 px-5 pb-12 pt-header text-center supports-[height:100svh]:h-[100svh] sm:px-8 md:px-12 md:pb-16">
-        {/* One fixed-height stage with every step stacked inside it, so swapping
-            copy never shifts the CTA and rail below. */}
-        <Reveal delay={120} className="w-full">
-          {/* Exit is driven by scroll, not by an observer. The stage sits
-              inside a pinned container, so it never actually leaves the
-              viewport while the section is held: an IntersectionObserver can
-              only fire once the sticky releases, which reads as a snap rather
-              than a fade. The effect above ramps it over the reserved tail so
-              the fade tracks the reader, and reverses on the way back up. */}
-          <div
-            ref={shellRef}
-            className="relative mx-auto h-[360px] w-full max-w-5xl sm:h-[440px] lg:h-[410px]"
-          >
-            <div
-              style={stageStyle(0)}
-              className="absolute inset-0 flex flex-col items-center justify-center"
-            >
-              <h2 className="text-4xl font-bold leading-[1.08] tracking-normal text-white drop-shadow-lg sm:text-5xl md:text-6xl lg:text-7xl">
-                WHAT&rsquo;S INCLUDED
-              </h2>
-            </div>
+      <Reveal delay={120} className="w-full text-center">
+        <h2
+          className="font-bold uppercase text-white"
+          style={{ fontSize: 'clamp(36px, 4.6vw, 64px)', lineHeight: 1.15, margin: 0 }}
+        >
+          What&rsquo;s Included
+        </h2>
+      </Reveal>
 
-            {ITEMS.map((item, i) => (
-              <div
-                key={item.index}
-                style={stageStyle(i + 1)}
-                className="absolute inset-0 flex flex-col items-center justify-center"
-              >
-                <span
-                  aria-hidden="true"
-                  className="font-mono text-sm tracking-[0.15em] text-white/60 drop-shadow-md sm:text-base lg:text-lg"
-                >
-                  {item.index}
-                </span>
-                <h3 className="mt-3 text-2xl font-bold leading-[1.15] tracking-normal text-white drop-shadow-lg sm:text-4xl sm:leading-[1.1] md:text-5xl lg:text-6xl">
-                  {item.title}
-                </h3>
-                <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/80 drop-shadow-md sm:text-base md:text-lg lg:text-xl">
-                  {item.body}
-                </p>
-              </div>
-            ))}
-          </div>
-        </Reveal>
+      <div
+        className="grid w-full max-w-5xl grid-cols-1 sm:grid-cols-2 sm:grid-flow-col"
+        style={{
+          columnGap: '32px',
+          rowGap: '12px',
+          gridTemplateRows: `repeat(${INCLUDED_LEFT.length}, auto)`,
+          padding: '0 clamp(0px, 2.92vw, 40px)',
+          fontSize: 'clamp(16px, 1.5vw, 22px)',
+        }}
+      >
+        {INCLUDED_LEFT.map((title, i) => (
+          <IncludedCard key={title} title={title} delay={160 + i * 20} />
+        ))}
 
+        {INCLUDED_RIGHT.map((title, i) => (
+          <IncludedCard key={title} title={title} delay={160 + i * 20} />
+        ))}
       </div>
     </section>
   )

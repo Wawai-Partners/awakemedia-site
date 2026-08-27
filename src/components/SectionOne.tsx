@@ -19,8 +19,15 @@ export default function SectionOne() {
         </p>
       </Reveal>
 
-      <Reveal delay={380} className="w-full">
-        <div className="mx-auto mt-7 flex w-full max-w-sm flex-col items-stretch gap-3 sm:mt-8 sm:w-auto sm:max-w-none sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
+      {/* The domain-registration link's blurred surface sits outside Reveal on
+          purpose: Reveal applies a transform (and, mid-transition,
+          will-change), which makes its own box a backdrop root. backdrop-
+          filter inside one can then only sample that root's own near-empty
+          layer instead of the real scrolling footage behind it, which reads
+          as a stale/delayed blur. Revealing the row's position while leaving
+          the blurred link itself untransformed keeps the blur live. */}
+      <div className="mx-auto mt-7 flex w-full max-w-sm flex-col items-stretch gap-3 sm:mt-8 sm:w-auto sm:max-w-none sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
+        <Reveal delay={380}>
           <a
             href={START_HERE_URL}
             target="_blank"
@@ -30,17 +37,21 @@ export default function SectionOne() {
             Start Here
             <ChevronRight size={14} />
           </a>
-          <a
-            href={REGISTER_DOMAIN_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex min-h-[52px] items-center justify-center gap-1 rounded-full border border-white/25 bg-white/10 px-8 py-4 text-base text-white backdrop-blur-md transition-colors duration-300 hover:bg-white/20 sm:text-lg"
-          >
-            Register a New domain
-            <ChevronRight size={14} />
-          </a>
+        </Reveal>
+        <div className="rounded-full backdrop-blur-md">
+          <Reveal delay={420}>
+            <a
+              href={REGISTER_DOMAIN_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-[52px] items-center justify-center gap-1 rounded-full border border-white/25 bg-white/10 px-8 py-4 text-base text-white transition-colors duration-300 hover:bg-white/20 sm:text-lg"
+            >
+              Register a New domain
+              <ChevronRight size={14} />
+            </a>
+          </Reveal>
         </div>
-      </Reveal>
+      </div>
     </section>
   )
 }

@@ -138,24 +138,12 @@
  */
 @media (min-width: 1024px) and (min-height: 700px) and (prefers-reduced-motion: no-preference) {
   /*
-   * `proximity`, not `mandatory`, and this was measured rather than assumed.
-   *
-   * Snap points here are a viewport apart at the section boundaries. Under
-   * `mandatory` every rest is pulled to the nearest one, so a scroll shorter
-   * than half a viewport is pulled back where it started: a 360px wheel
-   * movement - three notches - could not leave the hero at all, and neither
-   * could 300px. `proximity` leaves a short nudge where the reader put it and
-   * still collects anything that comes to rest near a point: over a full pass
-   * down the page, 86-90% of rests landed exactly on one, and every pass
-   * reached the end.
-   *
-   * What actually earns the "one section" feel is the ladder below, not the
-   * strictness: before it the two four-viewport sections had no snap point
-   * between their start and the next section, so a scroll could stop anywhere
-   * mid-fade with two items half-showing.
+   * `mandatory`, not `proximity`: a light nudge off a section's start must
+   * commit to the next snap point rather than settle back where it started,
+   * so a small scroll from the hero already lands fully on section two.
    */
   html {
-    scroll-snap-type: y proximity;
+    scroll-snap-type: y mandatory;
   }
 
   /* Sections that are exactly one viewport tall: one resting place each. */
