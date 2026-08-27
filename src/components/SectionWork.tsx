@@ -168,6 +168,9 @@ export default function SectionWork() {
    * the next scroll event and the control would appear broken.
    */
   const goTo = (index: number) => {
+    // Below lg there is no scrub runway and every card is already on screen,
+    // so scrolling the page on tap or focus would be a hijack, not navigation.
+    if (!isWide) return
     const el = sectionRef.current
     if (!el) return
     const scrubDistance = el.offsetHeight - window.innerHeight
@@ -186,13 +189,17 @@ export default function SectionWork() {
   return (
     // Tall on purpose: the extra height is the scroll runway that steps through
     // the eight items while the panel below stays pinned. ~50vh per item.
-    <section ref={sectionRef} id="additional-services" className="relative h-[420vh]">
-      <div className="sticky top-0 flex h-screen flex-col justify-center gap-8 px-5 pb-12 pt-24 supports-[height:100svh]:h-[100svh] sm:px-8 sm:pt-28 md:px-12 md:pb-16">
+    <section ref={sectionRef} id="additional-services" className="relative lg:h-[420vh]">
+      {/* Below lg this is a plain block in normal flow. It used to be a pinned
+          h-screen flex column with the eight cards as flex children: they were
+          shrunk to nothing to fit, so the whole section rendered as an empty
+          glass box with 420vh of dead scroll behind it. */}
+      <div className="flex flex-col justify-center gap-8 px-5 pb-16 pt-header sm:px-8 md:px-12 lg:sticky lg:top-0 lg:h-screen lg:pb-16 lg:supports-[height:100svh]:h-[100svh]">
         {/* Heading left, supporting copy right. Stacks below lg, where there is
             no room to sit them side by side. */}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between lg:gap-12">
           <Reveal delay={180}>
-            <h2 className="max-w-xl text-4xl font-bold leading-[1.08] tracking-normal text-white drop-shadow-lg sm:text-5xl lg:text-6xl">
+            <h2 className="max-w-xl text-3xl font-bold leading-[1.08] tracking-normal text-white drop-shadow-lg sm:text-5xl lg:text-6xl">
               ADDITIONAL SERVICES AVAILABLE
             </h2>
           </Reveal>
@@ -218,14 +225,20 @@ export default function SectionWork() {
             Bleeds past the section padding on the right (-mr) with no right
             border or rounding, so the strip row reads as continuing off-screen
             instead of ending in a boundary. */}
-        <div className="-mr-5 overflow-hidden rounded-l-2xl border-y border-l border-white/20 bg-white/5 p-2 backdrop-blur-md sm:-mr-8 md:-mr-12">
+        <div className="overflow-hidden rounded-2xl border border-white/20 bg-white/5 p-2 backdrop-blur-md lg:-mr-12 lg:rounded-r-none lg:border-r-0">
           <Reveal delay={280}>
             {/* Below lg: a plain vertical stack. From lg: each panel is placed
                 by transform, so passed items pile up on the left instead of
                 sliding away. */}
             <ul ref={listRef} className="flex h-auto flex-col gap-2 lg:relative lg:block lg:h-[520px]">
             {WORK.map((item, i) => {
-              const open = active === i
+              // Below lg every card is on screen at once, so "the current
+              // one" has no meaning: give them all the open treatment rather
+              // than singling one out at random.
+              const open = isWide ? active === i : true
+              // A control that looks tappable but does nothing is worse than no
+              // control; below lg goTo is a no-op, so render plain content.
+              const Card = isWide ? 'button' : 'div'
               return (
                 <li
                   key={item.index}
@@ -236,7 +249,7 @@ export default function SectionWork() {
                     // reads as a deck, newest card on top.
                     zIndex: i,
                   }}
-                  className="relative min-h-[72px] overflow-hidden rounded-xl lg:absolute lg:left-0 lg:top-0 lg:h-full lg:min-h-0"
+                  className="relative h-44 shrink-0 overflow-hidden rounded-xl sm:h-52 lg:absolute lg:left-0 lg:top-0 lg:h-full lg:shrink"
                 >
                   <img
                     src={IMAGES[i % IMAGES.length]}
@@ -256,19 +269,23 @@ export default function SectionWork() {
                     }`}
                   />
 
-                  {/* A real button so touch and keyboard work too: hover alone
-                      would leave this section inert on phones. */}
-                  <button
-                    type="button"
-                    onFocus={() => goTo(i)}
-                    onClick={() => goTo(i)}
-                    // Not aria-expanded: nothing collapses any more: every
-                    // description stays on screen: so this is "the current one
-                    // of a set", which is what aria-current means.
-                    aria-current={open}
+                  {/* From lg a real button, so the strip works by touch and
+                      keyboard rather than hover alone. */}
+                  <Card
+                    {...(isWide
+                      ? {
+                          type: 'button' as const,
+                          onFocus: () => goTo(i),
+                          onClick: () => goTo(i),
+                          // Not aria-expanded: nothing collapses any more: every
+                          // description stays on screen: so this is "the current
+                          // one of a set", which is what aria-current means.
+                          'aria-current': open,
+                        }
+                      : {})}
                     // Collapsed strips get tighter padding: at lg:p-5 the content
                     // box is only ~89px and a 16px label overflows it.
-                    className={`absolute inset-0 flex flex-col justify-end gap-2 overflow-hidden p-4 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70 ${
+                    className={`absolute inset-0 flex flex-col justify-end gap-1.5 overflow-hidden p-4 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70 sm:gap-2 ${
                       open ? 'lg:p-5' : 'lg:p-3'
                     }`}
                   >
@@ -285,7 +302,7 @@ export default function SectionWork() {
                         title too; the overlap simply clips it. */}
                     <span
                       className={`font-medium leading-snug tracking-tight text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] ${
-                        open ? 'text-lg lg:text-2xl' : 'text-base lg:text-lg'
+                        open ? 'text-base sm:text-lg lg:text-2xl' : 'text-base lg:text-lg'
                       }`}
                     >
                       {item.title}
@@ -293,11 +310,11 @@ export default function SectionWork() {
                     <p
                       // Always shown. Panels are wide enough to carry it now, and
                       // the left-hand pile simply clips what it overlaps.
-                      className="max-w-md text-sm leading-relaxed text-white/85 drop-shadow-md"
+                      className="max-w-md text-[13px] leading-snug text-white/85 drop-shadow-md sm:text-sm sm:leading-relaxed"
                     >
                       {item.body}
                     </p>
-                  </button>
+                  </Card>
                 </li>
               )
             })}
@@ -308,7 +325,7 @@ export default function SectionWork() {
         {/* Purple progress rail: the only cue that this section holds more than
             what is on screen, since the page scroll is what advances it. */}
         <div
-          className="-mr-5 sm:-mr-8 md:-mr-12"
+          className="hidden lg:-mr-12 lg:block"
           role="progressbar"
           aria-label="Service list position"
           aria-valuemin={1}

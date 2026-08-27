@@ -9,6 +9,26 @@ const MAX_FRAMES = 90
 const MIN_FRAMES = 24
 const FRAMES_PER_SECOND = 12
 const MAX_FRAME_WIDTH = 960
+/**
+ * Phone budget. The desktop cache is 90 bitmaps at 960px wide, which is on the
+ * order of 190MB of decoded RGBA held live: enough to get the tab killed on
+ * iOS, and the extraction itself competes with the first paint. A phone screen
+ * cannot resolve 960px of a background layer anyway, and 36 frames over the
+ * clip is still smoother than the scroll it is tied to.
+ */
+const MOBILE_MAX_FRAMES = 36
+const MOBILE_MAX_FRAME_WIDTH = 540
+const MOBILE_BREAKPOINT = 768
+
+/** Frame budget for this device. Read once, at extraction time. */
+function frameBudget() {
+  if (typeof window === 'undefined') return { maxFrames: MAX_FRAMES, maxWidth: MAX_FRAME_WIDTH }
+  const narrow = window.innerWidth < MOBILE_BREAKPOINT
+  const coarse = window.matchMedia('(pointer: coarse)').matches
+  return narrow || coarse
+    ? { maxFrames: MOBILE_MAX_FRAMES, maxWidth: MOBILE_MAX_FRAME_WIDTH }
+    : { maxFrames: MAX_FRAMES, maxWidth: MAX_FRAME_WIDTH }
+}
 const LERP = 0.12
 const SEEK_EPSILON = 0.04
 /** Dark veil over the footage so white type stays legible. See usage below. */
@@ -108,6 +128,13 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
 
   // ---- render loop ---------------------------------------------------------
   useEffect(() => {
+    // Read once per effect rather than per frame; a preference change is rare
+    // and a reload is an acceptable cost for it. Under reduced motion nothing
+    // is scrubbed and no frame cache is built, so there is nothing to drive:
+    // the footage rests on its first frame as a still backdrop and the loop
+    // would be a no-op burning battery every frame.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
     let raf = 0
 
     const drawCover = (
@@ -173,6 +200,10 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
     let extractor: HTMLVideoElement | null = null
 
     const start = async () => {
+      // A scroll-driven background is the motion this preference asks to be
+      // spared; extracting a frame cache to power it is pure cost.
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
       // Let the visible video get its first frame up before we compete for
       // bandwidth / decode time.
       await new Promise<void>((resolve) => {
@@ -202,14 +233,15 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       const duration = extractor.duration
       if (!Number.isFinite(duration) || duration <= 0) return
 
+      const budget = frameBudget()
       const count = Math.min(
-        MAX_FRAMES,
-        Math.max(MIN_FRAMES, Math.round(duration * FRAMES_PER_SECOND)),
+        budget.maxFrames,
+        Math.max(Math.min(MIN_FRAMES, budget.maxFrames), Math.round(duration * FRAMES_PER_SECOND)),
       )
 
       const vw = extractor.videoWidth
       const vh = extractor.videoHeight
-      const scale = Math.min(1, MAX_FRAME_WIDTH / vw)
+      const scale = Math.min(1, budget.maxWidth / vw)
       const fw = Math.round(vw * scale)
       const fh = Math.round(vh * scale)
 

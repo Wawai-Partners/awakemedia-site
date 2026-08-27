@@ -140,20 +140,20 @@ export default function SectionTwo() {
 
   return (
     // Tall on purpose: the extra height is the runway the items step along.
-    <section ref={sectionRef} id="whats-included" className="relative h-[420vh]">
-      <div className="sticky top-0 flex h-screen flex-col items-center justify-center gap-10 px-5 pb-12 pt-24 text-center supports-[height:100svh]:h-[100svh] sm:px-8 sm:pt-28 md:px-12 md:pb-16">
+    <section ref={sectionRef} id="whats-included" className="relative h-[420vh] supports-[height:100svh]:h-[420svh]">
+      <div className="sticky top-0 flex h-screen flex-col items-center justify-center gap-10 px-5 pb-12 pt-header text-center supports-[height:100svh]:h-[100svh] sm:px-8 md:px-12 md:pb-16">
         {/* One fixed-height stage with every step stacked inside it, so swapping
             copy never shifts the CTA and rail below. */}
         <Reveal delay={120} className="w-full">
           <div
             style={stageShell}
-            className="relative mx-auto h-[440px] w-full max-w-5xl sm:h-[410px]"
+            className="relative mx-auto h-[360px] w-full max-w-5xl sm:h-[440px] lg:h-[410px]"
           >
             <div
               style={stageStyle(0)}
               className="absolute inset-0 flex flex-col items-center justify-center"
             >
-              <h2 className="text-5xl font-bold leading-[1.08] tracking-normal text-white drop-shadow-lg sm:text-6xl lg:text-7xl">
+              <h2 className="text-4xl font-bold leading-[1.08] tracking-normal text-white drop-shadow-lg sm:text-5xl md:text-6xl lg:text-7xl">
                 WHAT&rsquo;S INCLUDED
               </h2>
             </div>
@@ -166,14 +166,14 @@ export default function SectionTwo() {
               >
                 <span
                   aria-hidden="true"
-                  className="font-mono text-base tracking-[0.15em] text-white/60 drop-shadow-md lg:text-lg"
+                  className="font-mono text-sm tracking-[0.15em] text-white/60 drop-shadow-md sm:text-base lg:text-lg"
                 >
                   {item.index}
                 </span>
-                <h3 className="mt-3 text-4xl font-bold leading-[1.1] tracking-normal text-white drop-shadow-lg sm:text-5xl lg:text-6xl">
+                <h3 className="mt-3 text-2xl font-bold leading-[1.15] tracking-normal text-white drop-shadow-lg sm:text-4xl sm:leading-[1.1] md:text-5xl lg:text-6xl">
                   {item.title}
                 </h3>
-                <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/80 drop-shadow-md sm:text-lg lg:text-xl">
+                <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/80 drop-shadow-md sm:text-base md:text-lg lg:text-xl">
                   {item.body}
                 </p>
               </div>

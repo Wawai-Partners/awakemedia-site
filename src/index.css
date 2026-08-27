@@ -59,6 +59,21 @@
     scroll-snap-stop: always;
   }
 
+  /* Phones: no snapping. Several sections are taller than a phone viewport, so
+     a snap point at their start is unreachable from below and `stop: always`
+     turns every flick into a fight. Touch momentum already gives the paging
+     feel that snapping was there to provide. */
+  @media (max-width: 767px) {
+    html {
+      scroll-snap-type: none;
+    }
+
+    main > section {
+      scroll-snap-align: none;
+      scroll-snap-stop: normal;
+    }
+  }
+
   /* Header nav is in-page anchors, so jumping instantly is disorienting. */
   @media (prefers-reduced-motion: no-preference) {
     html {
@@ -75,6 +90,9 @@
 
   body {
     font-family: 'Poppins', system-ui, sans-serif;
+    /* A rubber-band overscroll on a fixed-background page exposes the bare
+       document behind the video, and triggers pull-to-refresh mid-scrub. */
+    overscroll-behavior-y: none;
     background-color: #0a0a0a;
     color: #ffffff;
     -webkit-font-smoothing: antialiased;
@@ -83,5 +101,45 @@
 
   ::selection {
     background: rgba(255, 255, 255, 0.2);
+  }
+}
+
+@layer components {
+  /* Top clearance for the fixed header, in one place because five sections
+     need the same number. It steps up with the header on wider screens, and
+     back down on short viewports: on a 360px-tall landscape phone the 7rem
+     step is sized for a ~68px header and swallows a third of the screen. */
+  .pt-header {
+    padding-top: 5rem;
+  }
+
+  @media (min-width: 640px) {
+    .pt-header {
+      padding-top: 7rem;
+    }
+  }
+
+  /* Last, so it wins over the step above at the same specificity. */
+  @media (max-height: 640px) {
+    .pt-header {
+      padding-top: 4.5rem;
+    }
+  }
+}
+
+@layer utilities {
+  /* Notch / home-indicator clearance. env() resolves to 0 where there is no
+     inset, so these are safe to apply unconditionally. */
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 }
