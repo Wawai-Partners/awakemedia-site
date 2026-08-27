@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { onScrollFrame } from '../scroll'
 
 type ScrollVideoProps = {
   src: string
@@ -9,6 +10,26 @@ const MAX_FRAMES = 90
 const MIN_FRAMES = 24
 const FRAMES_PER_SECOND = 12
 const MAX_FRAME_WIDTH = 960
+/**
+ * Phone budget. The desktop cache is 90 bitmaps at 960px wide, which is on the
+ * order of 190MB of decoded RGBA held live: enough to get the tab killed on
+ * iOS, and the extraction itself competes with the first paint. A phone screen
+ * cannot resolve 960px of a background layer anyway, and 36 frames over the
+ * clip is still smoother than the scroll it is tied to.
+ */
+const MOBILE_MAX_FRAMES = 36
+const MOBILE_MAX_FRAME_WIDTH = 540
+const MOBILE_BREAKPOINT = 768
+
+/** Frame budget for this device. Read once, at extraction time. */
+function frameBudget() {
+  if (typeof window === 'undefined') return { maxFrames: MAX_FRAMES, maxWidth: MAX_FRAME_WIDTH }
+  const narrow = window.innerWidth < MOBILE_BREAKPOINT
+  const coarse = window.matchMedia('(pointer: coarse)').matches
+  return narrow || coarse
+    ? { maxFrames: MOBILE_MAX_FRAMES, maxWidth: MOBILE_MAX_FRAME_WIDTH }
+    : { maxFrames: MAX_FRAMES, maxWidth: MAX_FRAME_WIDTH }
+}
 const LERP = 0.12
 const SEEK_EPSILON = 0.04
 /** Dark veil over the footage so white type stays legible. See usage below. */
@@ -48,23 +69,27 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
 
   const [hasFrame, setHasFrame] = useState(false)
   const [framesReady, setFramesReady] = useState(false)
+  /**
+   * The <video> exists only to hold the screen until the frame cache is warm.
+   * Once the canvas is driving, a mounted element still pins its decoder and
+   * the buffered clip - which is 27MB here - in memory for the life of the
+   * page, on the device least able to spare it. Unmount it, one crossfade
+   * after the canvas takes over.
+   */
+  const [videoRetired, setVideoRetired] = useState(false)
 
   // ---- scroll progress -----------------------------------------------------
-  useEffect(() => {
-    const update = () => {
-      const max = document.documentElement.scrollHeight - window.innerHeight
-      const progress = max > 0 ? window.scrollY / max : 0
-      targetRef.current = Math.min(1, Math.max(0, progress))
-    }
-
-    update()
-    window.addEventListener('scroll', update, { passive: true })
-    window.addEventListener('resize', update)
-    return () => {
-      window.removeEventListener('scroll', update)
-      window.removeEventListener('resize', update)
-    }
-  }, [])
+  // Rides the shared ticker: the page height and viewport come already
+  // measured, so this no longer reads scrollHeight on every scroll event.
+  useEffect(
+    () =>
+      onScrollFrame(({ y, vh, pageHeight }) => {
+        const max = pageHeight - vh
+        const progress = max > 0 ? y / max : 0
+        targetRef.current = Math.min(1, Math.max(0, progress))
+      }),
+    [],
+  )
 
   // ---- canvas sizing -------------------------------------------------------
   useEffect(() => {
@@ -79,7 +104,8 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       canvas.width = w
       canvas.height = h
       // Resizing the backing store resets context state, so re-apply the DPR
-      // transform and let the render loop repaint on the next frame.
+      // transform. The render loop notices the changed client size and
+      // repaints on the next frame.
       canvas.getContext('2d')?.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
 
@@ -92,6 +118,20 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       window.removeEventListener('resize', resize)
     }
   }, [])
+
+  // A new clip starts the handover over again.
+  useEffect(() => {
+    setHasFrame(false)
+    setFramesReady(false)
+    setVideoRetired(false)
+  }, [src])
+
+  useEffect(() => {
+    if (!framesReady) return
+    // FADE_MS, so the handover is a crossfade rather than a cut.
+    const id = window.setTimeout(() => setVideoRetired(true), 600)
+    return () => window.clearTimeout(id)
+  }, [framesReady])
 
   // ---- first decoded frame -------------------------------------------------
   useEffect(() => {
@@ -108,7 +148,17 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
 
   // ---- render loop ---------------------------------------------------------
   useEffect(() => {
-    let raf = 0
+    // Read once per effect rather than per frame; a preference change is rare
+    // and a reload is an acceptable cost for it. Under reduced motion nothing
+    // is scrubbed and no frame cache is built, so there is nothing to drive:
+    // the footage rests on its first frame as a still backdrop and the loop
+    // would be a no-op burning battery every frame.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+    /** Frame index currently painted, so an unchanged one is not repainted. */
+    let paintedIndex = -1
+    let paintedW = 0
+    let paintedH = 0
 
     const drawCover = (
       ctx: CanvasRenderingContext2D,
@@ -126,8 +176,6 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
     }
 
     const tick = () => {
-      raf = requestAnimationFrame(tick)
-
       smoothedRef.current += (targetRef.current - smoothedRef.current) * LERP
       const progress = smoothedRef.current
 
@@ -141,9 +189,17 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
           frames.length - 1,
           Math.max(0, Math.round(progress * (frames.length - 1))),
         )
-        const bitmap = frames[index]
         const cw = canvas.clientWidth
         const ch = canvas.clientHeight
+        // The cache holds 36 to 90 frames over the whole page, so most frames
+        // of a scroll land on the same one. Clearing and re-drawing a
+        // full-bleed canvas to put back the identical pixels is the most
+        // expensive no-op on the page.
+        if (index === paintedIndex && cw === paintedW && ch === paintedH) return
+        paintedIndex = index
+        paintedW = cw
+        paintedH = ch
+        const bitmap = frames[index]
         ctx.clearRect(0, 0, cw, ch)
         drawCover(ctx, bitmap, bitmap.width, bitmap.height, cw, ch)
         return
@@ -163,8 +219,7 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       }
     }
 
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
+    return onScrollFrame(tick)
   }, [])
 
   // ---- frame cache extraction ---------------------------------------------
@@ -173,15 +228,22 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
     let extractor: HTMLVideoElement | null = null
 
     const start = async () => {
+      // A scroll-driven background is the motion this preference asks to be
+      // spared; extracting a frame cache to power it is pure cost.
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
       // Let the visible video get its first frame up before we compete for
       // bandwidth / decode time.
       await new Promise<void>((resolve) => {
         const video = videoRef.current
-        if (video && video.readyState >= 2) {
+        // No element to wait on (already retired after an earlier cache):
+        // go straight to extracting rather than waiting for an event that
+        // can never fire.
+        if (!video || video.readyState >= 2) {
           resolve()
           return
         }
-        video?.addEventListener('loadeddata', () => resolve(), { once: true })
+        video.addEventListener('loadeddata', () => resolve(), { once: true })
       })
       await new Promise((resolve) => window.setTimeout(resolve, 300))
       if (cancelled) return
@@ -202,14 +264,15 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       const duration = extractor.duration
       if (!Number.isFinite(duration) || duration <= 0) return
 
+      const budget = frameBudget()
       const count = Math.min(
-        MAX_FRAMES,
-        Math.max(MIN_FRAMES, Math.round(duration * FRAMES_PER_SECOND)),
+        budget.maxFrames,
+        Math.max(Math.min(MIN_FRAMES, budget.maxFrames), Math.round(duration * FRAMES_PER_SECOND)),
       )
 
       const vw = extractor.videoWidth
       const vh = extractor.videoHeight
-      const scale = Math.min(1, MAX_FRAME_WIDTH / vw)
+      const scale = Math.min(1, budget.maxWidth / vw)
       const fw = Math.round(vw * scale)
       const fh = Math.round(vh * scale)
 
@@ -267,17 +330,19 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
         />
       ) : null}
 
-      <video
-        ref={videoRef}
-        src={src}
-        muted
-        playsInline
-        preload="auto"
-        aria-hidden="true"
-        className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${
-          hasFrame && !framesReady ? 'opacity-100' : 'opacity-0'
-        }`}
-      />
+      {videoRetired ? null : (
+        <video
+          ref={videoRef}
+          src={src}
+          muted
+          playsInline
+          preload="auto"
+          aria-hidden="true"
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${
+            hasFrame && !framesReady ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+      )}
 
       <canvas
         ref={canvasRef}
