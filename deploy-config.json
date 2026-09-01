@@ -1,0 +1,22 @@
+{
+  "staging": {
+    "enabled": true,
+    "awsRegion": "us-east-1",
+    "roleArn": "arn:aws:iam::314567759774:role/awake-media-site-staging-deploy",
+    "bucket": "awake-media-site-staging",
+    "distributionId": "E7U700E74CEQO",
+    "distributionDomain": "db7y71qln8l06.cloudfront.net",
+    "sitePrefix": "",
+    "reservedPrefixes": ["awakemedia-site-v2", "previews"]
+  },
+  "production": {
+    "enabled": false,
+    "awsRegion": "us-east-1",
+    "roleArn": "",
+    "bucket": "",
+    "distributionId": "",
+    "distributionDomain": "",
+    "sitePrefix": "",
+    "reservedPrefixes": ["awakemedia-site-v2", "previews"]
+  }
+}
