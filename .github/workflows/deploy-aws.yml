@@ -1,0 +1,198 @@
+name: Deploy to AWS
+
+# Mirrors the pipeline in Wawai-Partners/wawai-site-astro: S3 origin behind
+# CloudFront, GitHub OIDC instead of stored AWS keys, targets read from
+# deploy-config.json so this file never has to change to point somewhere else.
+#
+# Two things differ from that repo, both because this bucket is shared:
+#
+#  - `awake-media-site-staging` also hosts awakemedia-site-v2 under the
+#    `awakemedia-site-v2/` prefix, and this site publishes to the bucket root.
+#    A plain `aws s3 sync --delete` at the root would take that whole site with
+#    it on the first deploy, so every prefix listed in `reservedPrefixes` is
+#    excluded from the delete pass.
+#  - The job's GitHub Environment follows the target actually being deployed. A
+#    preview always resolves to staging's bucket, so requesting a preview while
+#    "production" was selected would have assumed the production role and then
+#    been denied on the staging bucket.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to deploy
+        type: string
+        required: true
+        default: main
+      environment:
+        description: Environment to deploy to
+        type: choice
+        options: [staging, production]
+        required: true
+        default: staging
+      preview_path:
+        description: 'Preview path under previews/ (letters, numbers, hyphens) — leave empty for a normal deploy'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  id-token: write # required for OIDC: nothing can assume the role without it
+  contents: read
+
+concurrency:
+  # One deploy per target at a time; a later one waits rather than interleaving
+  # its sync with an invalidation.
+  group: deploy-${{ inputs.environment }}-${{ inputs.preview_path }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # The deploy role's trust policy checks the OIDC token's `sub` claim against
+    # `repo:Wawai-Partners/awakemedia-site:environment:<name>`, so this is not
+    # decoration: without it the token carries no environment claim and
+    # AssumeRoleWithWebIdentity is denied.
+    environment: ${{ inputs.preview_path != '' && 'staging' || inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Validate preview_path
+        if: inputs.preview_path != ''
+        run: |
+          if ! [[ "${{ inputs.preview_path }}" =~ ^[a-zA-Z0-9-]+$ ]]; then
+            echo "::error::preview_path contains invalid characters — only letters, numbers, and hyphens allowed"
+            exit 1
+          fi
+
+      - name: Resolve deploy target
+        id: target
+        env:
+          PREVIEW: ${{ inputs.preview_path }}
+          REQUESTED: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+
+          # A preview is always a staging artefact, whatever was picked above.
+          if [ -n "$PREVIEW" ]; then ENV=staging; else ENV="$REQUESTED"; fi
+
+          read_key() { jq -r --arg e "$ENV" ".[\$e].$1 // \"\"" deploy-config.json; }
+
+          # Not read_key: jq's `//` treats `false` as empty the same way it
+          # treats null, so `enabled: false` came back as "" rather than
+          # "false". Ask the question directly instead.
+          ENABLED=$(jq -r --arg e "$ENV" 'if .[$e].enabled == true then "true" else "false" end' deploy-config.json)
+          BUCKET=$(read_key bucket)
+          ROLE_ARN=$(read_key roleArn)
+          DISTRIBUTION_ID=$(read_key distributionId)
+          AWS_REGION=$(read_key awsRegion)
+          DOMAIN=$(read_key distributionDomain)
+          SITE_PREFIX=$(read_key sitePrefix)
+
+          if [ "$ENABLED" = "true" ] && { [ -z "$BUCKET" ] || [ -z "$ROLE_ARN" ] || [ -z "$DISTRIBUTION_ID" ]; }; then
+            echo "::error::$ENV is enabled in deploy-config.json but is missing bucket, roleArn or distributionId"
+            exit 1
+          fi
+
+          if [ -n "$PREVIEW" ]; then
+            KEY_PREFIX="previews/$PREVIEW"
+          elif [ -n "$SITE_PREFIX" ]; then
+            KEY_PREFIX="$SITE_PREFIX"
+          else
+            KEY_PREFIX=""
+          fi
+
+          if [ -n "$KEY_PREFIX" ]; then
+            S3_TARGET="s3://$BUCKET/$KEY_PREFIX"
+            INVALIDATION_PATH="/$KEY_PREFIX/*"
+            SITE_BASE="/$KEY_PREFIX/"
+          else
+            S3_TARGET="s3://$BUCKET"
+            INVALIDATION_PATH="/*"
+            SITE_BASE="/"
+          fi
+
+          {
+            echo "environment=$ENV"
+            echo "enabled=$ENABLED"
+            echo "role_arn=$ROLE_ARN"
+            echo "aws_region=$AWS_REGION"
+            echo "distribution_id=$DISTRIBUTION_ID"
+            echo "s3_target=$S3_TARGET"
+            echo "invalidation_path=$INVALIDATION_PATH"
+            echo "site_base=$SITE_BASE"
+            echo "scoped=$([ -n "$KEY_PREFIX" ] && echo true || echo false)"
+            echo "url=https://$DOMAIN$SITE_BASE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Skip notice
+        if: steps.target.outputs.enabled != 'true'
+        run: echo "::notice::${{ steps.target.outputs.environment }} is disabled in deploy-config.json — skipping deploy"
+
+      - uses: actions/setup-node@v4
+        if: steps.target.outputs.enabled == 'true'
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+        if: steps.target.outputs.enabled == 'true'
+
+      # --base overrides the value in vite.config.ts, which is set for GitHub
+      # Pages. Every asset URL in the bundle is built from it.
+      - run: npm run build -- --base=${{ steps.target.outputs.site_base }}
+        if: steps.target.outputs.enabled == 'true'
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: steps.target.outputs.enabled == 'true'
+        with:
+          role-to-assume: ${{ steps.target.outputs.role_arn }}
+          aws-region: ${{ steps.target.outputs.aws_region }}
+
+      - name: Publish to S3
+        if: steps.target.outputs.enabled == 'true'
+        env:
+          ENVIRONMENT: ${{ steps.target.outputs.environment }}
+          S3_TARGET: ${{ steps.target.outputs.s3_target }}
+          SCOPED: ${{ steps.target.outputs.scoped }}
+        run: |
+          set -euo pipefail
+          args=(s3 sync dist/ "$S3_TARGET" --delete)
+
+          # Only the root sync can reach another site's files. A scoped target
+          # (a preview, or a prefixed site) can only ever delete its own.
+          if [ "$SCOPED" != "true" ]; then
+            while IFS= read -r prefix; do
+              [ -n "$prefix" ] || continue
+              echo "Protecting s3 prefix from --delete: $prefix/"
+              args+=(--exclude "$prefix/*")
+            done < <(jq -r --arg e "$ENVIRONMENT" '.[$e].reservedPrefixes[]? // empty' deploy-config.json)
+          fi
+
+          printf 'aws'; printf ' %q' "${args[@]}"; printf '\n'
+          aws "${args[@]}"
+
+      - name: Invalidate CloudFront
+        if: steps.target.outputs.enabled == 'true'
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ steps.target.outputs.distribution_id }} \
+            --paths "${{ steps.target.outputs.invalidation_path }}"
+
+      - name: Summary
+        if: steps.target.outputs.enabled == 'true'
+        run: |
+          {
+            echo "### Deployed"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Environment | \`${{ steps.target.outputs.environment }}\` |"
+            echo "| Branch | \`${{ inputs.branch }}\` |"
+            echo "| S3 | \`${{ steps.target.outputs.s3_target }}\` |"
+            echo "| Base path | \`${{ steps.target.outputs.site_base }}\` |"
+            echo "| URL | ${{ steps.target.outputs.url }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
