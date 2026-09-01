@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { blendAt, stridePasses } from '../frameCache'
+import { reportLoading } from '../loading'
 import { onScrollFrame } from '../scroll'
 
 type ScrollVideoProps = {
@@ -283,7 +284,11 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
     const start = async () => {
       // A scroll-driven background is the motion this preference asks to be
       // spared; extracting a frame cache to power it is pure cost.
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        // Nothing to wait for, so nothing should be waited on.
+        reportLoading('frames', 1)
+        return
+      }
 
       // Let the visible video get its first frame up before we compete for
       // bandwidth / decode time.
@@ -347,7 +352,13 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       const frames: (ImageBitmap | null)[] = new Array(count).fill(null)
       framesRef.current = frames
 
-      for (const pass of stridePasses(count)) {
+      const passes = stridePasses(count)
+      // The preloader's bar is fed by the first pass only: that is the one the
+      // reader is actually waiting on, since the painter hands over after it.
+      const firstPass = passes[0]?.length ?? 1
+      let filled = 0
+
+      for (const pass of passes) {
         for (const i of pass) {
           if (cancelled) return
           await seekTo(extractor, (i / denom) * span)
@@ -359,6 +370,8 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
             return
           }
           frames[i] = bitmap
+          filled += 1
+          if (filled <= firstPass) reportLoading('frames', filled / firstPass)
         }
 
         // Hand over on the first pass. It covers the whole clip coarsely, and
@@ -375,6 +388,8 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       // No cache is coming. This is the one case where seeking the <video> per
       // frame is better than a still image.
       extractionFailedRef.current = true
+      // And the preloader should not sit at 40% waiting for it.
+      reportLoading('frames', 1)
     })
 
     return () => {
