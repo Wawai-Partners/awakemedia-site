@@ -17,7 +17,13 @@ const MAX_FRAME_WIDTH = 960
  * cannot resolve 960px of a background layer anyway, and 36 frames over the
  * clip is still smoother than the scroll it is tied to.
  */
-const MOBILE_MAX_FRAMES = 36
+/**
+ * Raised from 36 now that the painter dissolves between frames: 36 left 0.89s
+ * of footage between neighbours, which is long enough for the blend to read as
+ * a double exposure rather than motion. 54 halves that to 0.59s and costs about
+ * 35MB, still a fraction of the ~190MB that made the original budget a problem.
+ */
+const MOBILE_MAX_FRAMES = 54
 const MOBILE_MAX_FRAME_WIDTH = 540
 const MOBILE_BREAKPOINT = 768
 
@@ -155,8 +161,12 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
     // would be a no-op burning battery every frame.
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
 
-    /** Frame index currently painted, so an unchanged one is not repainted. */
-    let paintedIndex = -1
+    /**
+     * What is currently on the canvas, so an unchanged picture is not
+     * repainted. Keyed on the blend position rather than a frame index: the
+     * picture now changes continuously between two cached frames.
+     */
+    let paintedKey = -1
     let paintedW = 0
     let paintedH = 0
 
@@ -185,23 +195,46 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       if (frames.length && canvas) {
         const ctx = canvas.getContext('2d')
         if (!ctx) return
-        const index = Math.min(
-          frames.length - 1,
-          Math.max(0, Math.round(progress * (frames.length - 1))),
-        )
         const cw = canvas.clientWidth
         const ch = canvas.clientHeight
-        // The cache holds 36 to 90 frames over the whole page, so most frames
-        // of a scroll land on the same one. Clearing and re-drawing a
-        // full-bleed canvas to put back the identical pixels is the most
-        // expensive no-op on the page.
-        if (index === paintedIndex && cw === paintedW && ch === paintedH) return
-        paintedIndex = index
+
+        /**
+         * Blend the two cached frames either side of the playhead instead of
+         * snapping to the nearest one.
+         *
+         * The cache is 32 seconds of footage in 54 to 90 frames, spread over
+         * the whole page: one frame per ~105px of scroll on a desktop, ~170px
+         * on a phone. Snapping meant the picture only ever changed once every
+         * hundred-odd pixels, so the background read as a slideshow at two or
+         * three frames a second no matter how smoothly the page scrolled. The
+         * fix cannot be more frames - ninety at 960px is already on the order
+         * of 190MB of decoded RGBA - so it is a dissolve between the two
+         * neighbours, weighted by where the playhead sits between them. Same
+         * memory, one extra blit.
+         */
+        const pos = progress * (frames.length - 1)
+        const lo = Math.min(frames.length - 1, Math.max(0, Math.floor(pos)))
+        const hi = Math.min(frames.length - 1, lo + 1)
+        const blend = pos - lo
+
+        // 1/64 of the gap between two frames is well under what the eye
+        // resolves, and skipping those saves the blits when the page is still.
+        const key = lo * 64 + Math.round(blend * 64)
+        if (key === paintedKey && cw === paintedW && ch === paintedH) return
+        paintedKey = key
         paintedW = cw
         paintedH = ch
-        const bitmap = frames[index]
+
+        const a = frames[lo]
         ctx.clearRect(0, 0, cw, ch)
-        drawCover(ctx, bitmap, bitmap.width, bitmap.height, cw, ch)
+        drawCover(ctx, a, a.width, a.height, cw, ch)
+
+        if (hi !== lo && blend > 0) {
+          const b = frames[hi]
+          ctx.globalAlpha = blend
+          drawCover(ctx, b, b.width, b.height, cw, ch)
+          ctx.globalAlpha = 1
+        }
         return
       }
 
