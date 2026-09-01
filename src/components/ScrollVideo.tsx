@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { blendAt, stridePasses } from '../frameCache'
 import { onScrollFrame } from '../scroll'
 
 type ScrollVideoProps = {
@@ -69,7 +70,16 @@ function seekTo(video: HTMLVideoElement, time: number) {
 export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const framesRef = useRef<ImageBitmap[]>([])
+  /**
+   * Sparse on purpose: allocated at full length up front and filled in passes,
+   * so the painter can work off a coarse cache while the rest lands. A hole is
+   * null.
+   */
+  const framesRef = useRef<(ImageBitmap | null)[]>([])
+  /** Set only when extraction can never produce a cache. See the render loop. */
+  const extractionFailedRef = useRef(false)
+  /** Guards the one-time handover, which now happens before extraction ends. */
+  const readyRef = useRef(false)
   const targetRef = useRef(0)
   const smoothedRef = useRef(0)
 
@@ -191,8 +201,9 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
 
       const frames = framesRef.current
       const canvas = canvasRef.current
+      const blend = frames.length ? blendAt(frames, progress * (frames.length - 1)) : null
 
-      if (frames.length && canvas) {
+      if (blend && canvas) {
         const ctx = canvas.getContext('2d')
         if (!ctx) return
         const cw = canvas.clientWidth
@@ -212,33 +223,42 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
          * neighbours, weighted by where the playhead sits between them. Same
          * memory, one extra blit.
          */
-        const pos = progress * (frames.length - 1)
-        const lo = Math.min(frames.length - 1, Math.max(0, Math.floor(pos)))
-        const hi = Math.min(frames.length - 1, lo + 1)
-        const blend = pos - lo
+        const { lo, hi, t } = blend
 
         // 1/64 of the gap between two frames is well under what the eye
         // resolves, and skipping those saves the blits when the page is still.
-        const key = lo * 64 + Math.round(blend * 64)
+        // Keyed on the pair as well as the position, so the picture is repainted
+        // when a later extraction pass lands a closer neighbour.
+        const key = (lo * 128 + hi) * 64 + Math.round(t * 64)
         if (key === paintedKey && cw === paintedW && ch === paintedH) return
         paintedKey = key
         paintedW = cw
         paintedH = ch
 
         const a = frames[lo]
+        if (!a) return
         ctx.clearRect(0, 0, cw, ch)
         drawCover(ctx, a, a.width, a.height, cw, ch)
 
-        if (hi !== lo && blend > 0) {
-          const b = frames[hi]
-          ctx.globalAlpha = blend
+        const b = hi === lo ? null : frames[hi]
+        if (b && t > 0) {
+          ctx.globalAlpha = t
           drawCover(ctx, b, b.width, b.height, cw, ch)
           ctx.globalAlpha = 1
         }
         return
       }
 
-      // Fallback: scrub the visible <video> element directly.
+      /**
+       * Nothing cached yet, and the only other way to show motion is to seek
+       * the <video> on every frame. That is the choppiest thing this component
+       * can do - it is what made first load look worse than it does a moment
+       * later - so it is now the answer only when a cache is never coming.
+       * Otherwise the footage simply holds its first frame for the second or so
+       * the coarse pass takes, then starts moving smoothly.
+       */
+      if (!extractionFailedRef.current) return
+
       const video = videoRef.current
       if (video && video.readyState >= 2 && Number.isFinite(video.duration)) {
         const time = progress * Math.max(0, video.duration - 0.05)
@@ -315,34 +335,54 @@ export default function ScrollVideo({ src, poster }: ScrollVideoProps) {
       const sctx = scratch.getContext('2d')
       if (!sctx) return
 
-      const collected: ImageBitmap[] = []
       const span = Math.max(0, duration - 0.05)
+      const denom = Math.max(1, count - 1)
 
-      for (let i = 0; i < count; i++) {
-        if (cancelled) break
-        await seekTo(extractor, (i / (count - 1)) * span)
-        if (cancelled) break
-        sctx.drawImage(extractor, 0, 0, fw, fh)
-        collected.push(await createImageBitmap(scratch))
+      /**
+       * Published empty and filled in place, so the painter sees frames as they
+       * land instead of waiting for the last one. It used to collect into a
+       * local array and hand it over only when complete - ninety seeks through
+       * a 26MB clip - and until then the render loop had nothing to paint from.
+       */
+      const frames: (ImageBitmap | null)[] = new Array(count).fill(null)
+      framesRef.current = frames
+
+      for (const pass of stridePasses(count)) {
+        for (const i of pass) {
+          if (cancelled) return
+          await seekTo(extractor, (i / denom) * span)
+          if (cancelled) return
+          sctx.drawImage(extractor, 0, 0, fw, fh)
+          const bitmap = await createImageBitmap(scratch)
+          if (cancelled) {
+            bitmap.close()
+            return
+          }
+          frames[i] = bitmap
+        }
+
+        // Hand over on the first pass. It covers the whole clip coarsely, and
+        // a coarse cache the painter can blend across is smoother than seeking
+        // the <video> on every frame, which is what the alternative was.
+        if (!readyRef.current) {
+          readyRef.current = true
+          setFramesReady(true)
+        }
       }
-
-      if (cancelled) {
-        collected.forEach((bitmap) => bitmap.close())
-        return
-      }
-
-      framesRef.current = collected
-      setFramesReady(true)
     }
 
     start().catch(() => {
-      /* keep the <video> scrub fallback */
+      // No cache is coming. This is the one case where seeking the <video> per
+      // frame is better than a still image.
+      extractionFailedRef.current = true
     })
 
     return () => {
       cancelled = true
-      framesRef.current.forEach((bitmap) => bitmap.close())
+      framesRef.current.forEach((bitmap) => bitmap?.close())
       framesRef.current = []
+      readyRef.current = false
+      extractionFailedRef.current = false
       if (extractor) {
         extractor.removeAttribute('src')
         extractor.load()
