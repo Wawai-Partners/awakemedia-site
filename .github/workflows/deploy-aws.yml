@@ -4,17 +4,28 @@ name: Deploy to AWS
 # CloudFront, GitHub OIDC instead of stored AWS keys, targets read from
 # deploy-config.json so this file never has to change to point somewhere else.
 #
-# Two things differ from that repo, both because this bucket is shared:
+# Staging layout. `awake-media-site-staging` carries both Awake Media sites side
+# by side, each under its own key prefix, and nothing at the bucket root:
 #
-#  - `awake-media-site-staging` also hosts awakemedia-site-v2 under the
-#    `awakemedia-site-v2/` prefix, and this site publishes to the bucket root.
-#    A plain `aws s3 sync --delete` at the root would take that whole site with
-#    it on the first deploy, so every prefix listed in `reservedPrefixes` is
-#    excluded from the delete pass.
-#  - The job's GitHub Environment follows the target actually being deployed. A
-#    preview always resolves to staging's bucket, so requesting a preview while
-#    "production" was selected would have assumed the production role and then
-#    been denied on the staging bucket.
+#   preview/v1/   this repo (awakemedia-site)
+#   preview/v2/   awakemedia-site-v2
+#   pr/<token>/    throwaway builds of either
+#
+# That layout is what makes `aws s3 sync --delete` safe on a shared bucket:
+# every target is scoped to one prefix, so a deploy can only ever remove its own
+# keys. There is no root sync that could reach a neighbouring site, which is a
+# stronger guarantee than excluding prefixes from the delete pass - nothing has
+# to be remembered when a third site is added. `reservedPrefixes` stays in the
+# code below for the case where something is pointed at the root again, but with
+# this layout it never fires.
+#
+# Throwaway builds go under `pr/`, deliberately not `previews/`: a prefix one
+# letter away from `preview/` is unreadable in a bucket listing.
+#
+# One thing differs from the wawai workflow: the job's GitHub Environment
+# follows the target actually being deployed. A throwaway build always resolves
+# to staging's bucket, so requesting one while "production" was selected would
+# have assumed the production role and then been denied on the staging bucket.
 
 on:
   workflow_dispatch:
@@ -31,7 +42,7 @@ on:
         required: true
         default: staging
       preview_path:
-        description: 'Preview path under previews/ (letters, numbers, hyphens) — leave empty for a normal deploy'
+        description: 'Throwaway build under pr/ (letters, numbers, hyphens) — leave empty to deploy the site to its own slug'
         type: string
         required: false
         default: ''
@@ -98,7 +109,7 @@ jobs:
           fi
 
           if [ -n "$PREVIEW" ]; then
-            KEY_PREFIX="previews/$PREVIEW"
+            KEY_PREFIX="pr/$PREVIEW"
           elif [ -n "$SITE_PREFIX" ]; then
             KEY_PREFIX="$SITE_PREFIX"
           else
@@ -162,8 +173,9 @@ jobs:
           set -euo pipefail
           args=(s3 sync dist/ "$S3_TARGET" --delete)
 
-          # Only the root sync can reach another site's files. A scoped target
-          # (a preview, or a prefixed site) can only ever delete its own.
+          # Dormant with the current layout: every target is prefixed, so this
+          # branch is not taken. It is the guard for a target pointed at the
+          # bucket root, which would otherwise delete every neighbouring site.
           if [ "$SCOPED" != "true" ]; then
             while IFS= read -r prefix; do
               [ -n "$prefix" ] || continue
