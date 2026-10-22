@@ -147,6 +147,7 @@ jobs:
         if: steps.target.outputs.enabled == 'true'
         with:
           node-version: 22
+          check-latest: true
           cache: npm
 
       - run: npm ci
